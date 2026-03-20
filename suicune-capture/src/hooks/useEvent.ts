@@ -6,32 +6,14 @@ import { httpsCallable } from "firebase/functions";
 import { db, functions } from "../lib/firebase";
 
 export interface EventState {
-  /** Is there an active event right now? */
   active: boolean;
-  /** Seconds remaining (0 when inactive) */
   remaining: number;
-  /** Formatted MM:SS string */
   display: string;
-  /** Total duration in seconds */
   duration: number;
-  /** When the event started (epoch ms) */
   startedAt: number | null;
-  /** Loading state */
   loading: boolean;
 }
 
-const EVENT_DOC = "events/current";
-
-/**
- * Real-time listener for the global event timer.
- *
- * Firestore doc structure at `events/current`:
- * {
- *   active: boolean,
- *   startedAt: Timestamp,
- *   durationSeconds: number  (default 600 = 10 min)
- * }
- */
 export function useEvent(): EventState {
   const [state, setState] = useState<EventState>({
     active: false,
@@ -43,7 +25,6 @@ export function useEvent(): EventState {
   });
 
   useEffect(() => {
-    // Listen to the event document in real time
     const unsub = onSnapshot(
       doc(db, "events", "current"),
       (snap) => {
@@ -74,7 +55,6 @@ export function useEvent(): EventState {
     return unsub;
   }, []);
 
-  // Tick the countdown every second
   useEffect(() => {
     if (!state.active || !state.startedAt) return;
 
@@ -103,17 +83,17 @@ export function useEvent(): EventState {
 }
 
 /**
- * Hook to call the attemptCapture cloud function.
+ * Capture hook — now requires a pseudo
  */
 export function useCapture() {
   const [busy, setBusy] = useState(false);
 
-  const attempt = useCallback(async (): Promise<boolean> => {
+  const attempt = useCallback(async (pseudo: string): Promise<boolean> => {
     if (busy) return false;
     setBusy(true);
     try {
       const fn = httpsCallable(functions, "attemptCapture");
-      const res = await fn({ encounterId: "suicune_001" });
+      const res = await fn({ encounterId: "suicune_001", pseudo });
       return Boolean((res.data as any)?.success);
     } catch (err) {
       console.error("Capture error:", err);

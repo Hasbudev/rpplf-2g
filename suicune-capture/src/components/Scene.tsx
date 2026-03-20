@@ -7,7 +7,6 @@ import {
   OrbitControls,
   Sparkles,
   useGLTF,
-  useTexture,
 } from "@react-three/drei";
 import {
   EffectComposer,
@@ -15,7 +14,7 @@ import {
   Vignette,
   SMAA,
 } from "@react-three/postprocessing";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, Suspense } from "react";
 import * as THREE from "three";
 
 /* ═══════════════════════════════════════════════
@@ -27,10 +26,18 @@ type Phase = "intro" | "idle" | "throwing" | "shaking" | "captured" | "fled";
 const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
 const asset = (p: string) => `${BASE_PATH}${p}`;
 
-// Encounter position & camera offsets
-const ENCOUNTER = new THREE.Vector3(0, 2.9, 6);
-const CAM_INTRO_OFFSET = new THREE.Vector3(-4.2, 4.6, 8.2);
-const CAM_IDLE_OFFSET = new THREE.Vector3(-3.2, 3.8, 7.0);
+// Island
+const ISLAND_POS = new THREE.Vector3(0, -4, 0);
+const ISLAND_SCALE = 0.035;
+const ISLAND_ROTATION_Y = Math.PI * 1.1;
+
+// Suicune
+const ENCOUNTER = new THREE.Vector3(0.5, 5.5, -0.6);
+
+// Camera
+const CAM_POS = new THREE.Vector3(7, 6.5, 3);
+const CAM_LOOK_AT_OFFSET = new THREE.Vector3(0, 0.3, 0);
+
 const POKEBALL_SCALE = 0.1;
 
 /* ═══════════════════════════════════════════════
@@ -55,114 +62,463 @@ export function Scene({ phase, onIntroDone, onBallHit }: SceneProps) {
   }, []);
 
   return (
-    <div
-      onContextMenu={(e) => e.preventDefault()}
-      className="absolute inset-0"
-    >
+    <div onContextMenu={(e) => e.preventDefault()} className="absolute inset-0">
       <Canvas
-        dpr={[1, 2]}
+        dpr={[1, 1.5]}
         shadows
-        camera={{ position: [0, 9, 14], fov: 42, near: 0.1, far: 80 }}
+        camera={{ position: [7, 6.5, 3], fov: 40, near: 0.1, far: 300 }}
         gl={{
           antialias: true,
           powerPreference: "high-performance",
-          logarithmicDepthBuffer: true,
+          toneMapping: THREE.ACESFilmicToneMapping,
+          toneMappingExposure: 1.1,
         }}
       >
-        {/* Sky & atmosphere */}
-        <color attach="background" args={["#050810"]} />
-        <fog attach="fog" args={["#050810", 30, 120]} />
+        <Suspense fallback={null}>
+          <color attach="background" args={["#0a0a1a"]} />
+          <fog attach="fog" args={["#0a0a1a", 40, 120]} />
 
-        {/* Lighting */}
-        <ambientLight intensity={0.4} />
-        <directionalLight
-          position={[18, 28, 12]}
-          intensity={1.2}
-          castShadow
-          shadow-mapSize-width={2048}
-          shadow-mapSize-height={2048}
-          shadow-camera-near={1}
-          shadow-camera-far={80}
-          shadow-camera-left={-40}
-          shadow-camera-right={40}
-          shadow-camera-top={40}
-          shadow-camera-bottom={-40}
-        />
+          {/* === LIGHTING === */}
+          <ambientLight intensity={0.15} color="#0a0a2e" />
 
-        {/* Subtle rim light for Suicune */}
-        <pointLight
-          position={[ENCOUNTER.x - 2, ENCOUNTER.y + 3, ENCOUNTER.z + 2]}
-          intensity={0.6}
-          color="#38bdf8"
-          distance={12}
-          decay={2}
-        />
-
-        <Environment preset="night" />
-
-        {/* World */}
-        <TownModel />
-        <LogoOverlay />
-
-        {/* Encounter VFX */}
-        <EncounterPortal
-          phase={phase}
-          onIntroDone={onIntroDone}
-          debugCam={debugCam}
-          position={ENCOUNTER}
-        />
-        <Sparkles
-          count={80}
-          size={1.2}
-          speed={0.4}
-          opacity={0.2}
-          scale={[6, 3, 6]}
-          position={[ENCOUNTER.x, ENCOUNTER.y + 1.2, ENCOUNTER.z]}
-          color="#38bdf8"
-        />
-
-        {/* Characters */}
-        <SuicuneModel phase={phase} position={ENCOUNTER} />
-        <PokeballModel
-          phase={phase}
-          position={ENCOUNTER}
-          onHit={onBallHit}
-          ballScale={POKEBALL_SCALE}
-        />
-
-        {/* Post-processing */}
-        <EffectComposer>
-          <SMAA />
-          <Bloom
-            intensity={0.5}
-            luminanceThreshold={0.3}
-            luminanceSmoothing={0.9}
+          <directionalLight
+            position={[-5, 25, -10]}
+            intensity={0.7}
+            color="#6677cc"
+            castShadow
+            shadow-mapSize-width={2048}
+            shadow-mapSize-height={2048}
+            shadow-camera-near={1}
+            shadow-camera-far={60}
+            shadow-camera-left={-20}
+            shadow-camera-right={20}
+            shadow-camera-top={20}
+            shadow-camera-bottom={-20}
+            shadow-bias={-0.005}
           />
-          <Vignette eskil={false} offset={0.12} darkness={0.65} />
-        </EffectComposer>
 
-        {/* Debug orbit (press C) */}
-        {debugCam && (
-          <OrbitControls
-            makeDefault
-            enableDamping
-            dampingFactor={0.08}
-            enablePan
-            minDistance={3}
-            maxDistance={80}
+          <spotLight
+            position={[ENCOUNTER.x + 1, ENCOUNTER.y + 8, ENCOUNTER.z + 3]}
+            intensity={12}
+            color="#38bdf8"
+            distance={25}
+            angle={0.4}
+            penumbra={1}
+            decay={2}
+            castShadow
           />
-        )}
+
+          <pointLight
+            position={[ENCOUNTER.x - 5, ENCOUNTER.y + 2, ENCOUNTER.z + 2]}
+            intensity={3}
+            color="#ec4899"
+            distance={18}
+            decay={2}
+          />
+
+          <pointLight
+            position={[ENCOUNTER.x + 5, ENCOUNTER.y + 1, ENCOUNTER.z - 1]}
+            intensity={2}
+            color="#7c3aed"
+            distance={15}
+            decay={2}
+          />
+
+          <pointLight
+            position={[ENCOUNTER.x + 3, ENCOUNTER.y + 1, ENCOUNTER.z + 8]}
+            intensity={1.2}
+            color="#94a3b8"
+            distance={15}
+            decay={2}
+          />
+
+          <Environment preset="night" />
+
+          {/* === WORLD === */}
+          <IslandModel />
+          <LanternFlames />
+          <Moon />
+          <Fireflies />
+
+          {/* === VFX === */}
+          <FloatingCrystals />
+          <StarField />
+
+          <Sparkles
+            count={100}
+            size={1.5}
+            speed={0.3}
+            opacity={0.25}
+            scale={[10, 6, 10]}
+            position={[ENCOUNTER.x, ENCOUNTER.y + 2, ENCOUNTER.z]}
+            color="#60a5fa"
+          />
+          <Sparkles
+            count={50}
+            size={0.8}
+            speed={0.5}
+            opacity={0.2}
+            scale={[6, 4, 6]}
+            position={[ENCOUNTER.x, ENCOUNTER.y + 2, ENCOUNTER.z]}
+            color="#f9a8d4"
+          />
+
+          {/* === ENCOUNTER === */}
+          <CameraController
+            phase={phase}
+            onIntroDone={onIntroDone}
+            debugCam={debugCam}
+            position={ENCOUNTER}
+          />
+          <SuicuneAura position={ENCOUNTER} phase={phase} />
+          <SuicuneModel phase={phase} position={ENCOUNTER} />
+          <PokeballModel
+            phase={phase}
+            position={ENCOUNTER}
+            onHit={onBallHit}
+            ballScale={POKEBALL_SCALE}
+          />
+
+          {/* Post-processing */}
+          <EffectComposer>
+            <SMAA />
+            <Bloom
+              intensity={0.8}
+              luminanceThreshold={0.15}
+              luminanceSmoothing={0.8}
+              mipmapBlur
+            />
+            <Vignette eskil={false} offset={0.2} darkness={0.75} />
+          </EffectComposer>
+
+          {debugCam && (
+            <OrbitControls
+              makeDefault
+              enableDamping
+              dampingFactor={0.08}
+              enablePan
+              minDistance={2}
+              maxDistance={80}
+            />
+          )}
+        </Suspense>
       </Canvas>
     </div>
   );
 }
 
 /* ═══════════════════════════════════════════════
-   TOWN MODEL
+   CAMERA CONTROLLER — with subtle breathing sway
    ═══════════════════════════════════════════════ */
 
-function TownModel() {
-  const { scene } = useGLTF(asset("/models/town.glb"));
+function CameraController({
+  phase,
+  onIntroDone,
+  debugCam,
+  position,
+}: {
+  phase: Phase;
+  onIntroDone: () => void;
+  debugCam: boolean;
+  position: THREE.Vector3;
+}) {
+  const elapsed = useRef(0);
+
+  useEffect(() => {
+    if (phase === "intro") elapsed.current = 0;
+  }, [phase]);
+
+  useFrame((state, delta) => {
+    elapsed.current += delta;
+
+    if (!debugCam) {
+      const lookAt = position.clone().add(CAM_LOOK_AT_OFFSET);
+
+      // Subtle breathing sway
+      const t = elapsed.current;
+      const swayTarget = CAM_POS.clone();
+      swayTarget.x += Math.sin(t * 0.25) * 0.08;
+      swayTarget.y += Math.sin(t * 0.18) * 0.04;
+      swayTarget.z += Math.cos(t * 0.2) * 0.05;
+
+      state.camera.position.lerp(swayTarget, 0.06);
+      state.camera.lookAt(lookAt);
+    }
+
+    if (!debugCam && phase === "intro" && elapsed.current > 1.5) {
+      onIntroDone();
+    }
+  });
+
+  return null;
+}
+
+/* ═══════════════════════════════════════════════
+   MOON — large glowing sphere in the sky
+   ═══════════════════════════════════════════════ */
+
+function Moon() {
+  const ref = useRef<THREE.Mesh>(null!);
+
+  useFrame(({ clock }) => {
+    if (!ref.current) return;
+    const mat = ref.current.material as THREE.MeshStandardMaterial;
+    mat.emissiveIntensity = 1.2 + Math.sin(clock.elapsedTime * 0.3) * 0.15;
+  });
+
+  return (
+    <group position={[-15, 28, -25]}>
+      {/* Moon sphere */}
+      <mesh ref={ref}>
+        <sphereGeometry args={[3, 32, 32]} />
+        <meshStandardMaterial
+          color="#e8e0d0"
+          emissive="#b8c4e8"
+          emissiveIntensity={1.2}
+          roughness={1}
+          metalness={0}
+        />
+      </mesh>
+      {/* Moonlight glow */}
+      <pointLight
+        intensity={2}
+        color="#8899cc"
+        distance={80}
+        decay={2}
+      />
+      {/* Halo effect — slightly larger translucent sphere */}
+      <mesh>
+        <sphereGeometry args={[4.5, 32, 32]} />
+        <meshStandardMaterial
+          color="#8899cc"
+          emissive="#6677aa"
+          emissiveIntensity={0.5}
+          transparent
+          opacity={0.08}
+          roughness={1}
+          metalness={0}
+          depthWrite={false}
+        />
+      </mesh>
+    </group>
+  );
+}
+
+/* ═══════════════════════════════════════════════
+   FIREFLIES — soft glowing particles above the water
+   ═══════════════════════════════════════════════ */
+
+function Fireflies() {
+  const flies = useMemo(() => {
+    const arr = [];
+    for (let i = 0; i < 25; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const dist = 1 + Math.random() * 3;
+      arr.push({
+        basePos: [
+          ENCOUNTER.x + Math.cos(angle) * dist,
+          ENCOUNTER.y - 0.5 + Math.random() * 1.5,
+          ENCOUNTER.z + Math.sin(angle) * dist,
+        ] as [number, number, number],
+        speed: 0.4 + Math.random() * 0.6,
+        range: 0.2 + Math.random() * 0.4,
+        phase: Math.random() * Math.PI * 2,
+        pulseSpeed: 1 + Math.random() * 2,
+        color: Math.random() > 0.3 ? "#67e8f9" : "#fde68a",
+      });
+    }
+    return arr;
+  }, []);
+
+  return (
+    <group>
+      {flies.map((f, i) => (
+        <Firefly key={i} {...f} />
+      ))}
+    </group>
+  );
+}
+
+function Firefly({
+  basePos,
+  speed,
+  range,
+  phase,
+  pulseSpeed,
+  color,
+}: {
+  basePos: [number, number, number];
+  speed: number;
+  range: number;
+  phase: number;
+  pulseSpeed: number;
+  color: string;
+}) {
+  const ref = useRef<THREE.Mesh>(null!);
+  const lightRef = useRef<THREE.PointLight>(null!);
+
+  useFrame(({ clock }) => {
+    const t = clock.elapsedTime;
+    if (ref.current) {
+      ref.current.position.x = basePos[0] + Math.sin(t * speed + phase) * range;
+      ref.current.position.y = basePos[1] + Math.sin(t * speed * 0.7 + phase + 1) * range * 0.6;
+      ref.current.position.z = basePos[2] + Math.cos(t * speed * 0.8 + phase) * range;
+
+      // Pulse opacity
+      const pulse = 0.4 + Math.sin(t * pulseSpeed + phase) * 0.4;
+      const mat = ref.current.material as THREE.MeshStandardMaterial;
+      mat.opacity = Math.max(0.05, pulse);
+      ref.current.scale.setScalar(0.02 + pulse * 0.015);
+    }
+    if (lightRef.current) {
+      const pulse = 0.4 + Math.sin(t * pulseSpeed + phase) * 0.4;
+      lightRef.current.intensity = pulse * 0.8;
+    }
+  });
+
+  return (
+    <group>
+      <mesh ref={ref} position={basePos}>
+        <sphereGeometry args={[1, 8, 8]} />
+        <meshStandardMaterial
+          color={color}
+          emissive={color}
+          emissiveIntensity={3}
+          transparent
+          opacity={0.5}
+          depthWrite={false}
+        />
+      </mesh>
+      <pointLight
+        ref={lightRef}
+        position={basePos}
+        intensity={0.5}
+        color={color}
+        distance={2}
+        decay={2}
+      />
+    </group>
+  );
+}
+
+/* ═══════════════════════════════════════════════
+   SUICUNE AURA
+   ═══════════════════════════════════════════════ */
+
+function SuicuneAura({
+  position,
+  phase,
+}: {
+  position: THREE.Vector3;
+  phase: Phase;
+}) {
+  const glowRef = useRef<THREE.PointLight>(null!);
+  const glowRef2 = useRef<THREE.PointLight>(null!);
+
+  const visible = phase === "idle" || phase === "intro";
+
+  useFrame(({ clock }) => {
+    const t = clock.elapsedTime;
+
+    if (glowRef.current) {
+      glowRef.current.intensity = visible
+        ? 8 + Math.sin(t * 1.2) * 3
+        : THREE.MathUtils.lerp(glowRef.current.intensity, 0, 0.05);
+    }
+
+    if (glowRef2.current) {
+      glowRef2.current.intensity = visible
+        ? 5 + Math.sin(t * 1.8 + 1) * 2
+        : THREE.MathUtils.lerp(glowRef2.current.intensity, 0, 0.05);
+    }
+  });
+
+  return (
+    <group position={[position.x, position.y, position.z]}>
+      <pointLight
+        ref={glowRef}
+        position={[0, 0.5, 0.5]}
+        intensity={8}
+        color="#38bdf8"
+        distance={10}
+        decay={2}
+      />
+      <pointLight
+        ref={glowRef2}
+        position={[0, 1.5, -1]}
+        intensity={5}
+        color="#a78bfa"
+        distance={8}
+        decay={2}
+      />
+    </group>
+  );
+}
+
+/* ═══════════════════════════════════════════════
+   LANTERN FLAMES
+   ═══════════════════════════════════════════════ */
+
+function LanternFlames() {
+  const flames = useMemo(() => [
+    { pos: [-0.74, 5.55, 1.75] as [number, number, number] },
+    { pos: [1.45, 5.55, 1.0] as [number, number, number] },
+  ], []);
+
+  return (
+    <group>
+      {flames.map((f, i) => (
+        <LanternFlame key={i} position={f.pos} />
+      ))}
+    </group>
+  );
+}
+
+function LanternFlame({ position }: { position: [number, number, number] }) {
+  const ref = useRef<THREE.Mesh>(null!);
+  const lightRef = useRef<THREE.PointLight>(null!);
+
+  useFrame(({ clock }) => {
+    const t = clock.elapsedTime;
+    if (ref.current) {
+      const flicker = 0.04 + Math.sin(t * 2 + position[0] * 10) * 0.01;
+      ref.current.scale.setScalar(flicker);
+    }
+    if (lightRef.current) {
+      lightRef.current.intensity = 3 + Math.sin(t * 1.5 + position[0] * 5) * 0.8;
+    }
+  });
+
+  return (
+    <group position={position}>
+      <mesh ref={ref}>
+        <sphereGeometry args={[1, 12, 12]} />
+        <meshStandardMaterial
+          color="#fbbf24"
+          emissive="#ff8c00"
+          emissiveIntensity={3}
+          transparent
+          opacity={0.9}
+          depthWrite={false}
+        />
+      </mesh>
+      <pointLight
+        ref={lightRef}
+        intensity={3}
+        color="#ff9933"
+        distance={3}
+        decay={2}
+      />
+    </group>
+  );
+}
+
+/* ═══════════════════════════════════════════════
+   ISLAND MODEL
+   ═══════════════════════════════════════════════ */
+
+function IslandModel() {
+  const { scene } = useGLTF(asset("/models/island.glb"));
   const gl = useThree((s) => s.gl);
 
   useEffect(() => {
@@ -171,6 +527,9 @@ function TownModel() {
     scene.traverse((obj) => {
       if (!(obj as THREE.Mesh).isMesh) return;
       const mesh = obj as THREE.Mesh;
+      mesh.receiveShadow = true;
+      mesh.castShadow = true;
+
       const mats = Array.isArray(mesh.material)
         ? mesh.material
         : [mesh.material];
@@ -179,11 +538,7 @@ function TownModel() {
         if (!m) return;
         const std = m as THREE.MeshStandardMaterial;
         const textures = [
-          std.map,
-          std.emissiveMap,
-          std.roughnessMap,
-          std.metalnessMap,
-          std.normalMap,
+          std.map, std.emissiveMap, std.roughnessMap, std.metalnessMap, std.normalMap,
         ].filter(Boolean) as THREE.Texture[];
 
         textures.forEach((tex) => {
@@ -200,140 +555,113 @@ function TownModel() {
   return (
     <primitive
       object={scene}
-      position={[0, -0.25, 0]}
-      rotation={[0, Math.PI, 0]}
-      scale={1}
+      position={[ISLAND_POS.x, ISLAND_POS.y, ISLAND_POS.z]}
+      rotation={[0, ISLAND_ROTATION_Y, 0]}
+      scale={ISLAND_SCALE}
     />
   );
 }
 
 /* ═══════════════════════════════════════════════
-   LOGO OVERLAY (RPPLF badge in 3D)
+   FLOATING CRYSTALS
    ═══════════════════════════════════════════════ */
 
-function LogoOverlay() {
-  const tex = useTexture(asset("/textures/logo.png"));
-  const { camera } = useThree();
-
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 8;
+function FloatingCrystals() {
+  const crystals = useMemo(() => {
+    const arr = [];
+    for (let i = 0; i < 16; i++) {
+      const angle = (i / 16) * Math.PI * 2 + Math.random() * 0.5;
+      const dist = 10 + Math.random() * 12;
+      arr.push({
+        pos: [
+          Math.cos(angle) * dist,
+          -2 + Math.random() * 8,
+          Math.sin(angle) * dist,
+        ] as [number, number, number],
+        scale: 0.06 + Math.random() * 0.18,
+        speed: 0.3 + Math.random() * 0.5,
+        rotSpeed: 0.2 + Math.random() * 0.8,
+        color: ["#38bdf8", "#818cf8", "#c084fc", "#22d3ee", "#f9a8d4"][
+          Math.floor(Math.random() * 5)
+        ],
+        floatRange: 0.3 + Math.random() * 0.6,
+        phase: Math.random() * Math.PI * 2,
+      });
+    }
+    return arr;
+  }, []);
 
   return (
-    <mesh
-      position={[
-        camera.position.x + 13,
-        camera.position.y - 9,
-        camera.position.z - 9,
-      ]}
-      scale={1.5}
-    >
-      <planeGeometry args={[3, 3]} />
-      <meshBasicMaterial
-        map={tex}
-        transparent
-        opacity={1}
-        toneMapped={false}
-        depthTest={false}
+    <group>
+      {crystals.map((c, i) => (
+        <CrystalShard key={i} {...c} />
+      ))}
+    </group>
+  );
+}
+
+function CrystalShard({
+  pos, scale, speed, rotSpeed, color, floatRange, phase,
+}: {
+  pos: [number, number, number]; scale: number; speed: number;
+  rotSpeed: number; color: string; floatRange: number; phase: number;
+}) {
+  const ref = useRef<THREE.Mesh>(null!);
+
+  useFrame(({ clock }) => {
+    if (!ref.current) return;
+    const t = clock.elapsedTime;
+    ref.current.position.y = pos[1] + Math.sin(t * speed + phase) * floatRange;
+    ref.current.rotation.x = t * rotSpeed * 0.5;
+    ref.current.rotation.y = t * rotSpeed;
+    ref.current.rotation.z = t * rotSpeed * 0.3;
+  });
+
+  return (
+    <mesh ref={ref} position={pos} scale={scale}>
+      <octahedronGeometry args={[1, 0]} />
+      <meshStandardMaterial
+        color={color} emissive={color} emissiveIntensity={0.6}
+        roughness={0.2} metalness={0.8} transparent opacity={0.7}
       />
     </mesh>
   );
 }
 
 /* ═══════════════════════════════════════════════
-   ENCOUNTER PORTAL + CAMERA CONTROLLER
+   STAR FIELD
    ═══════════════════════════════════════════════ */
 
-function EncounterPortal({
-  phase,
-  onIntroDone,
-  debugCam,
-  position,
-}: {
-  phase: Phase;
-  onIntroDone: () => void;
-  debugCam: boolean;
-  position: THREE.Vector3;
-}) {
-  const ringRef = useRef<THREE.Mesh>(null!);
-  const diskRef = useRef<THREE.Mesh>(null!);
-  const elapsed = useRef(0);
-
-  // Reset timer on intro
-  useEffect(() => {
-    if (phase === "intro") elapsed.current = 0;
-  }, [phase]);
-
-  useFrame((state, delta) => {
-    elapsed.current += delta;
-
-    /* ── Camera ── */
-    if (!debugCam) {
-      const lookAt = new THREE.Vector3(
-        position.x,
-        position.y + 1.15,
-        position.z
-      );
-      const offset = phase === "intro" ? CAM_INTRO_OFFSET : CAM_IDLE_OFFSET;
-      const targetCam = position.clone().add(offset);
-
-      state.camera.position.lerp(targetCam, 0.06);
-      state.camera.lookAt(lookAt);
+function StarField() {
+  const points = useMemo(() => {
+    const p = new Float32Array(800 * 3);
+    for (let i = 0; i < 800; i++) {
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.acos(2 * Math.random() - 1);
+      const r = 50 + Math.random() * 50;
+      p[i * 3] = r * Math.sin(phi) * Math.cos(theta);
+      p[i * 3 + 1] = Math.abs(r * Math.cos(phi)) + 5;
+      p[i * 3 + 2] = r * Math.sin(phi) * Math.sin(theta);
     }
+    return p;
+  }, []);
 
-    /* ── Portal animation ── */
-    if (!ringRef.current || !diskRef.current) return;
+  const ref = useRef<THREE.Points>(null!);
 
-    const pulse = 0.5 + 0.5 * Math.sin(elapsed.current * 2.1);
-    const open =
-      phase === "intro"
-        ? THREE.MathUtils.clamp(elapsed.current / 2.0, 0, 1)
-        : 1;
-
-    ringRef.current.scale.setScalar(1 + open * 0.18);
-    diskRef.current.scale.setScalar(0.55 + open * 0.55);
-    ringRef.current.rotation.z += delta * 0.35;
-
-    const ringMat = ringRef.current.material as THREE.MeshStandardMaterial;
-    const diskMat = diskRef.current.material as THREE.MeshStandardMaterial;
-    ringMat.emissiveIntensity = 1.4 + pulse * 1.1;
-    diskMat.emissiveIntensity = 1.1 + pulse * 1.0;
-
-    // Transition to idle after 2.3s
-    if (!debugCam && phase === "intro" && elapsed.current > 2.3) {
-      onIntroDone();
-    }
+  useFrame(({ clock }) => {
+    if (ref.current) ref.current.rotation.y = clock.elapsedTime * 0.003;
   });
 
   return (
-    <group position={[position.x, position.y + 1.2, position.z]}>
-      {/* Glowing ring */}
-      <mesh ref={ringRef}>
-        <torusGeometry args={[1, 0.085, 16, 96]} />
-        <meshStandardMaterial
-          color="#87a9ff"
-          emissive="#6bb7ff"
-          emissiveIntensity={2}
-          roughness={0.25}
-          metalness={0.6}
-        />
-      </mesh>
-
-      {/* Inner disk */}
-      <mesh ref={diskRef} position={[0, 0, -0.06]} renderOrder={0}>
-        <circleGeometry args={[1, 64]} />
-        <meshStandardMaterial
-          color="#071a2a"
-          emissive="#2aa7ff"
-          emissiveIntensity={1.6}
-          transparent
-          opacity={0.16}
-          roughness={0.4}
-          metalness={0.2}
-          depthWrite={false}
-          depthTest={false}
-        />
-      </mesh>
-    </group>
+    <points ref={ref}>
+      <bufferGeometry>
+        <bufferAttribute attach="attributes-position" args={[points, 3]} />
+      </bufferGeometry>
+      <pointsMaterial
+        size={0.12} color="#a5b4fc" transparent opacity={0.5}
+        sizeAttenuation depthWrite={false}
+      />
+    </points>
   );
 }
 
@@ -351,10 +679,7 @@ function SuicuneModel({
   const groupRef = useRef<THREE.Group>(null!);
   const { scene } = useGLTF(asset("/models/suicune.glb"));
   const elapsed = useRef(0);
-  const [smokeActive, setSmokeActive] = useState(false);
-  const smokePos = useRef(new THREE.Vector3());
 
-  // Setup materials for transparency
   useEffect(() => {
     scene.traverse((obj) => {
       if (!(obj as THREE.Mesh).isMesh) return;
@@ -365,8 +690,7 @@ function SuicuneModel({
       mesh.receiveShadow = true;
 
       const mats = Array.isArray(mesh.material)
-        ? mesh.material
-        : [mesh.material];
+        ? mesh.material : [mesh.material];
       mats.forEach((m) => {
         if (!m) return;
         const std = m as THREE.MeshStandardMaterial;
@@ -396,140 +720,46 @@ function SuicuneModel({
 
     const p = position;
 
-    // Emerge from portal during intro
-    const emerge =
-      phase === "intro"
-        ? THREE.MathUtils.clamp(elapsed.current / 2, 0, 1)
-        : 1;
-
-    const yTarget = THREE.MathUtils.lerp(p.y - 0.8, p.y + 1.1, emerge);
-    const zTarget = THREE.MathUtils.lerp(p.z - 2.2, p.z - 0.6, emerge);
-    const bob = phase === "idle" ? Math.sin(elapsed.current * 2) * 0.03 : 0;
-
     if (phase === "fled") {
-      // Run away
       groupRef.current.rotation.y = THREE.MathUtils.lerp(
-        groupRef.current.rotation.y,
-        -Math.PI / 2,
-        0.12
+        groupRef.current.rotation.y, -Math.PI * 0.6, 0.06
       );
       groupRef.current.position.x = THREE.MathUtils.lerp(
-        groupRef.current.position.x,
-        p.x + 4.5,
-        0.1
+        groupRef.current.position.x, p.x + 8, 0.04
       );
       groupRef.current.position.z = THREE.MathUtils.lerp(
-        groupRef.current.position.z,
-        p.z - 2.0,
-        0.1
+        groupRef.current.position.z, p.z - 4, 0.04
       );
       groupRef.current.position.y = THREE.MathUtils.lerp(
-        groupRef.current.position.y,
-        p.y + 0.2,
-        0.1
+        groupRef.current.position.y, p.y + 1, 0.04
       );
-
-      smokePos.current.copy(groupRef.current.position);
-      if (!smokeActive) setSmokeActive(true);
-      fadeTo(0, 0.1);
+      fadeTo(0, 0.04);
       return;
     }
-
-    if (smokeActive) setSmokeActive(false);
 
     groupRef.current.position.set(
       THREE.MathUtils.lerp(groupRef.current.position.x, p.x, 0.1),
-      THREE.MathUtils.lerp(groupRef.current.position.y, yTarget + bob, 0.1),
-      THREE.MathUtils.lerp(groupRef.current.position.z, zTarget, 0.1)
+      THREE.MathUtils.lerp(groupRef.current.position.y, p.y, 0.1),
+      THREE.MathUtils.lerp(groupRef.current.position.z, p.z, 0.1)
     );
     groupRef.current.rotation.y = THREE.MathUtils.lerp(
-      groupRef.current.rotation.y,
-      0,
-      0.1
+      groupRef.current.rotation.y, Math.PI * 0.2, 0.1
     );
 
-    const vanish = phase === "shaking" || phase === "captured";
-    fadeTo(vanish ? 0 : 1, vanish ? 0.25 : 0.12);
-  });
-
-  return (
-    <>
-      <group ref={groupRef}>
-        <Center>
-          <primitive object={scene} scale={0.065} />
-        </Center>
-      </group>
-      <SmokeBurst
-        active={smokeActive}
-        position={smokePos.current}
-        strength={2.2}
-      />
-    </>
-  );
-}
-
-/* ═══════════════════════════════════════════════
-   SMOKE BURST (when Suicune flees)
-   ═══════════════════════════════════════════════ */
-
-function SmokeBurst({
-  active,
-  position,
-  strength = 1,
-}: {
-  active: boolean;
-  position: THREE.Vector3;
-  strength?: number;
-}) {
-  const groupRef = useRef<THREE.Group>(null!);
-  const elapsed = useRef(0);
-
-  useEffect(() => {
-    if (active) elapsed.current = 0;
-  }, [active]);
-
-  useFrame((_, delta) => {
-    if (!groupRef.current) return;
-
-    if (!active) {
-      groupRef.current.visible = false;
-      return;
+    if (phase === "shaking") {
+      fadeTo(0, 0.06);
+    } else if (phase === "captured") {
+      fadeTo(0, 0.1);
+    } else {
+      fadeTo(1, 0.08);
     }
-
-    groupRef.current.visible = true;
-    elapsed.current += delta;
-
-    const life = Math.min(elapsed.current / 0.85, 1);
-    groupRef.current.position.copy(position);
-    groupRef.current.scale.setScalar((0.6 + life * 2.4) * strength);
-
-    groupRef.current.children.forEach((child, i) => {
-      const mesh = child as THREE.Mesh;
-      const mat = mesh.material as THREE.MeshStandardMaterial;
-
-      mat.opacity = (1 - life) * 0.35 * strength;
-      mesh.position.y = i * 0.08 + life * 0.55;
-      mesh.position.x =
-        (i % 2 === 0 ? 1 : -1) * (0.1 + life * 0.22) * Math.sin(i * 1.7);
-      mesh.position.z = (0.1 + life * 0.22) * Math.cos(i * 1.3);
-    });
   });
 
   return (
-    <group ref={groupRef} visible={false}>
-      {Array.from({ length: 18 }).map((_, i) => (
-        <mesh key={i}>
-          <sphereGeometry args={[0.22, 10, 10]} />
-          <meshStandardMaterial
-            color="#cbd5e1"
-            transparent
-            opacity={0}
-            roughness={1}
-            metalness={0}
-            depthWrite={false}
-          />
-        </mesh>
-      ))}
+    <group ref={groupRef}>
+      <Center>
+        <primitive object={scene} scale={0.065} />
+      </Center>
     </group>
   );
 }
@@ -557,13 +787,13 @@ function PokeballModel({
   const startPos = useRef(new THREE.Vector3());
   const endPos = useRef(new THREE.Vector3());
   const hitFired = useRef(false);
+  const shakeStart = useRef(0);
 
   const targetCenter = useMemo(
-    () => new THREE.Vector3(position.x, position.y + 1.1, position.z - 0.6),
+    () => new THREE.Vector3(position.x, position.y + 0.8, position.z),
     [position]
   );
 
-  // Collect all materials for glow
   const materials = useRef<THREE.MeshStandardMaterial[]>([]);
   useEffect(() => {
     materials.current = [];
@@ -575,8 +805,7 @@ function PokeballModel({
       mesh.receiveShadow = true;
 
       const mats = Array.isArray(mesh.material)
-        ? mesh.material
-        : [mesh.material];
+        ? mesh.material : [mesh.material];
       mats.forEach((m) => {
         const std = m as THREE.MeshStandardMaterial;
         if (std && "roughness" in std) {
@@ -587,34 +816,37 @@ function PokeballModel({
     });
   }, [scene]);
 
-  const setGlow = (level: number) => {
+  const setGlow = (level: number, color: string = "#ffffff") => {
     materials.current.forEach((m) => {
-      m.emissive.set("#ffffff");
+      m.emissive.set(color);
       m.emissiveIntensity = level;
     });
   };
 
-  // Initialize throw trajectory
   useEffect(() => {
-    if (phase !== "throwing") return;
+    if (phase === "throwing") {
+      elapsed.current = 0;
+      hitFired.current = false;
 
-    elapsed.current = 0;
-    hitFired.current = false;
+      const dir = new THREE.Vector3();
+      camera.getWorldDirection(dir);
 
-    const dir = new THREE.Vector3();
-    camera.getWorldDirection(dir);
+      startPos.current
+        .copy(camera.position)
+        .add(dir.multiplyScalar(1.2))
+        .add(new THREE.Vector3(0, -0.6, 0));
 
-    startPos.current
-      .copy(camera.position)
-      .add(dir.multiplyScalar(1.2))
-      .add(new THREE.Vector3(0, -0.6, 0));
+      endPos.current.copy(targetCenter);
 
-    endPos.current.copy(targetCenter);
+      groupRef.current.visible = true;
+      groupRef.current.position.copy(startPos.current);
+      groupRef.current.rotation.set(0, 0, 0);
+      setGlow(0);
+    }
 
-    groupRef.current.visible = true;
-    groupRef.current.position.copy(startPos.current);
-    groupRef.current.rotation.set(0, 0, 0);
-    setGlow(0);
+    if (phase === "shaking") {
+      shakeStart.current = 0;
+    }
   }, [phase, camera, targetCenter]);
 
   useFrame((_, delta) => {
@@ -625,14 +857,12 @@ function PokeballModel({
         elapsed.current = Math.min(elapsed.current + delta * 1.7, 1);
 
         const p = startPos.current.clone().lerp(endPos.current, elapsed.current);
-        // Parabolic arc
         p.y += Math.sin(elapsed.current * Math.PI) * 1.6;
 
         groupRef.current.position.copy(p);
         groupRef.current.rotation.x += delta * 10;
         groupRef.current.rotation.z += delta * 8;
 
-        // Hit detection
         if (!hitFired.current && p.distanceTo(endPos.current) < 0.45) {
           hitFired.current = true;
           onHit();
@@ -641,22 +871,48 @@ function PokeballModel({
       }
 
       case "shaking": {
+        shakeStart.current += delta;
         groupRef.current.visible = true;
         groupRef.current.position.copy(endPos.current);
 
-        const shake = Math.sin(Date.now() * 0.02) * 0.22;
-        groupRef.current.rotation.y = shake;
-        groupRef.current.rotation.z = shake * 0.4;
+        const t = shakeStart.current;
+        const shakeCount = 3;
+        const shakeDuration = 0.4;
+        const totalShake = shakeCount * shakeDuration;
 
-        setGlow(0.35 + 0.25 * Math.sin(Date.now() * 0.02));
+        if (t < totalShake) {
+          const progress = (t % shakeDuration) / shakeDuration;
+          const swing = Math.sin(progress * Math.PI * 2) * 0.18;
+          const dampening = 1 - (t / totalShake) * 0.5;
+          groupRef.current.rotation.z = swing * dampening;
+          groupRef.current.rotation.y = swing * 0.3 * dampening;
+        } else {
+          groupRef.current.rotation.z = THREE.MathUtils.lerp(
+            groupRef.current.rotation.z, 0, 0.1
+          );
+          groupRef.current.rotation.y = THREE.MathUtils.lerp(
+            groupRef.current.rotation.y, 0, 0.1
+          );
+        }
+
+        setGlow(0.15, "#38bdf8");
         break;
       }
 
       case "captured": {
         groupRef.current.visible = true;
         groupRef.current.position.copy(endPos.current);
-        groupRef.current.rotation.y += delta * 3;
-        setGlow(0.7);
+        groupRef.current.rotation.y += delta * 1.5;
+        groupRef.current.rotation.z = THREE.MathUtils.lerp(
+          groupRef.current.rotation.z, 0, 0.1
+        );
+        setGlow(0.4, "#fbbf24");
+        break;
+      }
+
+      case "fled": {
+        groupRef.current.visible = false;
+        setGlow(0);
         break;
       }
 
@@ -678,9 +934,9 @@ function PokeballModel({
 }
 
 /* ═══════════════════════════════════════════════
-   PRELOAD ASSETS
+   PRELOAD
    ═══════════════════════════════════════════════ */
 
-useGLTF.preload(asset("/models/town.glb"));
+useGLTF.preload(asset("/models/island.glb"));
 useGLTF.preload(asset("/models/suicune.glb"));
 useGLTF.preload(asset("/models/pokeball.glb"));
