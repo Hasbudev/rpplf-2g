@@ -5,6 +5,8 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Scene } from "../components/Scene";
 import { useEvent, useCapture } from "../hooks/useEvent";
 
+const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
+
 type Phase = "intro" | "idle" | "throwing" | "shaking" | "captured" | "fled";
 
 const BALL_FLIGHT_MS = 800;
@@ -71,12 +73,10 @@ export default function Page() {
   const canThrow = phase === "idle" && !throwing && event.active;
   const showResult = phase === "captured" || phase === "fled";
 
-  /* ─── Lobby (offline) ─── */
   if (!event.active && !event.loading && phase === "intro") {
     return <LobbyScreen />;
   }
 
-  /* ─── Pseudo screen (event active but no pseudo yet) ─── */
   if (event.active && !pseudoConfirmed) {
     return (
       <PseudoScreen
@@ -91,7 +91,6 @@ export default function Page() {
     );
   }
 
-  /* ─── Encounter ─── */
   return (
     <div className="relative h-dvh w-full overflow-hidden bg-black">
       <div className="absolute inset-0">
@@ -104,7 +103,7 @@ export default function Page() {
 
       <div className="fixed bottom-28 right-5 z-10 pointer-events-none">
         <img
-          src="/textures/logo.png"
+          src={`${BASE_PATH}/textures/logo.png`}
           alt="RPPLF League"
           className="w-14 sm:w-18 opacity-60"
           style={{ filter: "drop-shadow(0 0 8px rgba(0,0,0,0.6))" }}
@@ -200,7 +199,7 @@ function PseudoScreen({
 
         <div className="mt-8 flex justify-center">
           <img
-            src="/textures/logo.png"
+            src={`${BASE_PATH}/textures/logo.png`}
             alt="RPPLF League"
             className="w-20 opacity-40"
           />
@@ -250,7 +249,7 @@ function LobbyScreen() {
 
         <div className="mt-10 flex justify-center">
           <img
-            src="/textures/logo.png"
+            src={`${BASE_PATH}/textures/logo.png`}
             alt="RPPLF League"
             className="w-28 sm:w-36 object-contain drop-shadow-lg"
             style={{ filter: "drop-shadow(0 0 20px rgba(56, 140, 255, 0.15))" }}
@@ -304,7 +303,6 @@ function TopBar({
       </div>
 
       <div className="flex items-center gap-2">
-        {/* Pseudo badge */}
         <div className="hud-panel-sm px-3 py-2 pointer-events-auto">
           <span className="text-xs text-white/50">{pseudo}</span>
         </div>
