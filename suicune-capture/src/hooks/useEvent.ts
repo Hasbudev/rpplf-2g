@@ -83,21 +83,64 @@ export function useEvent(): EventState {
 }
 
 /**
- * Capture hook — now requires a pseudo
+ * Generate or retrieve a persistent device ID for anti-cheat.
+ */
+function getDeviceId(): string {
+  const KEY = "suicune_device_id";
+  try {
+    let id = localStorage.getItem(KEY);
+    if (id && id.length >= 20) return id;
+
+    // Generate a new one
+    id =
+      "dev_" +
+      Date.now().toString(36) +
+      "_" +
+      Math.random().toString(36).substring(2, 12) +
+      "_" +
+      Math.random().toString(36).substring(2, 12);
+
+    localStorage.setItem(KEY, id);
+    return id;
+  } catch {
+    // Fallback if localStorage is blocked
+    return "dev_fallback_" + Date.now().toString(36) + Math.random().toString(36).substring(2, 12);
+  }
+}
+
+export interface CaptureResult {
+  success: boolean;
+  attemptNumber?: number;
+  attemptsRemaining?: number;
+  reason?: string;
+}
+
+/**
+ * Capture hook — sends pseudo + deviceId
  */
 export function useCapture() {
   const [busy, setBusy] = useState(false);
 
-  const attempt = useCallback(async (pseudo: string): Promise<boolean> => {
-    if (busy) return false;
+  const attempt = useCallback(async (pseudo: string): Promise<CaptureResult> => {
+    if (busy) return { success: false, reason: "busy" };
     setBusy(true);
     try {
       const fn = httpsCallable(functions, "attemptCapture");
-      const res = await fn({ encounterId: "suicune_001", pseudo });
-      return Boolean((res.data as any)?.success);
+      const res = await fn({
+        encounterId: "suicune_001",
+        pseudo,
+        deviceId: getDeviceId(),
+      });
+      const data = res.data as any;
+      return {
+        success: Boolean(data?.success),
+        attemptNumber: data?.attemptNumber,
+        attemptsRemaining: data?.attemptsRemaining,
+        reason: data?.reason,
+      };
     } catch (err) {
       console.error("Capture error:", err);
-      return false;
+      return { success: false, reason: "error" };
     } finally {
       setBusy(false);
     }

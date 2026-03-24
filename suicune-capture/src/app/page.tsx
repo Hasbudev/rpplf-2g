@@ -3,11 +3,12 @@
 import { useCallback, useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Scene } from "../components/Scene";
-import { useEvent, useCapture } from "../hooks/useEvent";
+import { useEvent, useCapture, CaptureResult } from "../hooks/useEvent";
 
 const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
+const MAX_ATTEMPTS = 3;
 
-type Phase = "intro" | "idle" | "throwing" | "shaking" | "captured" | "fled";
+type Phase = "intro" | "idle" | "throwing" | "shaking" | "captured" | "fled" | "exhausted";
 
 const BALL_FLIGHT_MS = 800;
 const SHAKE_DURATION_MS = 2000;
@@ -23,6 +24,7 @@ export default function Page() {
   const [message, setMessage] = useState("Une présence étrange apparaît…");
   const [throwing, setThrowing] = useState(false);
   const [attempts, setAttempts] = useState(0);
+  const [attemptsRemaining, setAttemptsRemaining] = useState(MAX_ATTEMPTS);
 
   const onIntroDone = useCallback(() => {
     setPhase("idle");
@@ -41,17 +43,38 @@ export default function Page() {
     setMessage("Lancer !");
     setAttempts((a) => a + 1);
 
-    const successPromise = attempt(pseudo);
+    const resultPromise = attempt(pseudo);
     await sleep(BALL_FLIGHT_MS);
-    const success = await successPromise;
+    const result: CaptureResult = await resultPromise;
     await sleep(SHAKE_DURATION_MS);
 
-    if (success) {
+    // Max attempts reached server-side
+    if (result.reason === "max_attempts") {
+      setPhase("exhausted");
+      setMessage("Vous avez utilisé tous vos essais…");
+      setAttemptsRemaining(0);
+      setThrowing(false);
+      return;
+    }
+
+    const remaining = result.attemptsRemaining ?? 0;
+    setAttemptsRemaining(remaining);
+
+    if (result.success) {
       setPhase("captured");
       setMessage("Félicitations ! Suicune a été capturé !");
-    } else {
+    } else if (remaining <= 0) {
+      // Last attempt failed — Suicune flees
       setPhase("fled");
-      setMessage("Oh non… Suicune s'est échappé !");
+      setMessage("Suicune s'enfuit dans la nuit…");
+    } else {
+      // Still have attempts — Suicune stays, reset to idle
+      setPhase("idle");
+      setMessage(
+        remaining === 1
+          ? "Raté… Dernière chance, dresseur !"
+          : "Ah presque ! Suicune vous observe…"
+      );
     }
 
     setThrowing(false);
@@ -61,22 +84,27 @@ export default function Page() {
     setPhase("intro");
     setMessage("Une présence étrange apparaît…");
     setThrowing(false);
+    // Don't reset attempts — server tracks per event
   }, []);
 
   useEffect(() => {
     if (!event.active && phase !== "intro" && !event.loading) {
       setPhase("intro");
       setMessage("L'événement est terminé.");
+      setAttempts(0);
+      setAttemptsRemaining(MAX_ATTEMPTS);
     }
   }, [event.active, event.loading, phase]);
 
-  const canThrow = phase === "idle" && !throwing && event.active;
-  const showResult = phase === "captured" || phase === "fled";
+  const canThrow = phase === "idle" && !throwing && event.active && attemptsRemaining > 0;
+  const showResult = phase === "captured" || phase === "fled" || phase === "exhausted";
 
+  /* ─── Lobby ─── */
   if (!event.active && !event.loading && phase === "intro") {
     return <LobbyScreen />;
   }
 
+  /* ─── Pseudo screen ─── */
   if (event.active && !pseudoConfirmed) {
     return (
       <PseudoScreen
@@ -91,14 +119,15 @@ export default function Page() {
     );
   }
 
+  /* ─── Encounter ─── */
   return (
     <div className="relative h-dvh w-full overflow-hidden bg-black">
       <div className="absolute inset-0">
-        <Scene phase={phase} onIntroDone={onIntroDone} onBallHit={onBallHit} />
+        <Scene phase={phase === "exhausted" ? "idle" : phase} onIntroDone={onIntroDone} onBallHit={onBallHit} />
       </div>
 
       <div className="relative z-10 pointer-events-none">
-        <TopBar event={event} attempts={attempts} pseudo={pseudo} />
+        <TopBar event={event} attempts={attempts} pseudo={pseudo} attemptsRemaining={attemptsRemaining} />
       </div>
 
       <div className="fixed bottom-28 right-5 z-10 pointer-events-none">
@@ -119,6 +148,7 @@ export default function Page() {
             onThrow={throwBall}
             onReset={reset}
             showResult={showResult}
+            attemptsRemaining={attemptsRemaining}
           />
         </div>
       </div>
@@ -185,7 +215,7 @@ function PseudoScreen({
             className="w-full bg-white/5 border border-white/10 rounded-xl px-5 py-4 text-white text-lg text-center font-semibold outline-none focus:border-cyan-400/40 focus:bg-white/8 transition-all placeholder:text-white/20"
           />
           <p className="text-xs text-white/20 mt-2">
-            2 à 30 caractères
+            2 à 30 caractères · 3 essais par événement
           </p>
         </div>
 
@@ -240,8 +270,8 @@ function LobbyScreen() {
 
         <p className="text-sm text-white/40 max-w-md mx-auto leading-relaxed mb-3">
           L'événement n'est pas actif pour le moment.
-          Quand il sera lancé, vous aurez <strong className="text-white/60">10 minutes</strong> pour
-          tenter de capturer Suicune.
+          Quand il sera lancé, vous aurez <strong className="text-white/60">10 minutes</strong> et
+          <strong className="text-white/60"> 3 essais</strong> pour tenter de capturer Suicune.
         </p>
         <p className="text-xs text-white/25">
           Taux de capture : <span className="text-cyan-400/60 font-semibold">0.5%</span> — Bonne chance.
@@ -274,10 +304,12 @@ function TopBar({
   event,
   attempts,
   pseudo,
+  attemptsRemaining,
 }: {
   event: ReturnType<typeof useEvent>;
   attempts: number;
   pseudo: string;
+  attemptsRemaining: number;
 }) {
   const isUrgent = event.remaining < 60 && event.remaining > 0;
 
@@ -307,20 +339,21 @@ function TopBar({
           <span className="text-xs text-white/50">{pseudo}</span>
         </div>
 
-        {attempts > 0 && (
-          <motion.div
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            className="hud-panel-sm px-4 py-3 pointer-events-auto"
-          >
-            <div className="flex items-center gap-2">
-              <div className="pokeball-icon" />
-              <span className="text-sm text-white/70">
-                <span className="font-bold text-white">{attempts}</span> lancé{attempts > 1 ? "s" : ""}
-              </span>
-            </div>
-          </motion.div>
-        )}
+        {/* Pokeball attempts indicator */}
+        <div className="hud-panel-sm px-3 py-2 pointer-events-auto flex items-center gap-1.5">
+          {Array.from({ length: MAX_ATTEMPTS }).map((_, i) => (
+            <div
+              key={i}
+              className="pokeball-icon"
+              style={{
+                width: 14,
+                height: 14,
+                opacity: i < (MAX_ATTEMPTS - attemptsRemaining) ? 0.2 : 1,
+                filter: i < (MAX_ATTEMPTS - attemptsRemaining) ? "grayscale(1)" : "none",
+              }}
+            />
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -337,6 +370,7 @@ function EncounterHUD({
   onThrow,
   onReset,
   showResult,
+  attemptsRemaining,
 }: {
   phase: Phase;
   message: string;
@@ -344,6 +378,7 @@ function EncounterHUD({
   onThrow: () => void;
   onReset: () => void;
   showResult: boolean;
+  attemptsRemaining: number;
 }) {
   if (showResult) return null;
 
@@ -379,6 +414,10 @@ function EncounterHUD({
 
           <p className="text-xs text-white/30 mt-1">
             Taux de capture : <span className="text-cyan-400/60 font-mono font-semibold">0.5%</span>
+            <span className="text-white/15 mx-2">·</span>
+            <span className={attemptsRemaining <= 1 ? "text-red-400/60" : "text-white/30"}>
+              {attemptsRemaining} essai{attemptsRemaining > 1 ? "s" : ""} restant{attemptsRemaining > 1 ? "s" : ""}
+            </span>
           </p>
         </div>
 
@@ -389,7 +428,6 @@ function EncounterHUD({
               Lancer
             </span>
           </button>
-          <button onClick={onReset} className="btn-secondary">Reset</button>
         </div>
       </div>
     </motion.div>
@@ -410,6 +448,7 @@ function ResultOverlay({
   pseudo: string;
 }) {
   const captured = phase === "captured";
+  const exhausted = phase === "exhausted";
 
   return (
     <motion.div
@@ -474,18 +513,22 @@ function ResultOverlay({
           className="text-xl sm:text-2xl font-bold mb-2"
           style={{ fontFamily: "var(--font-display)", color: captured ? "#fbbf24" : "#94a3b8" }}
         >
-          {captured ? "Capturé !" : "Échappé…"}
+          {captured ? "Capturé !" : exhausted ? "Plus d'essais…" : "Échappé…"}
         </h2>
 
         <p className="text-sm text-white/50 mb-6 max-w-xs mx-auto">
           {captured
             ? `Bravo ${pseudo} ! Tu as capturé le légendaire Suicune !`
-            : "Suicune s'est enfui dans la nuit. Retentez votre chance !"}
+            : exhausted
+            ? "Vous avez utilisé vos 3 essais. Suicune s'éloigne lentement…"
+            : "Suicune s'est enfui dans la nuit. Vos 3 essais sont épuisés."}
         </p>
 
-        <button onClick={onReset} className="btn-secondary pointer-events-auto">
-          {captured ? "Rejouer" : "Réessayer"}
-        </button>
+        {captured && (
+          <button onClick={onReset} className="btn-secondary pointer-events-auto">
+            Fermer
+          </button>
+        )}
       </motion.div>
     </motion.div>
   );

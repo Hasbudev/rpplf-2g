@@ -7,6 +7,7 @@ const db = admin.firestore();
 
 const EVENT_DOC = "events/current";
 const DEFAULT_DURATION = 600;
+const MAX_ATTEMPTS = 3;
 
 function getInput(data) {
   return data?.data || data;
@@ -53,12 +54,18 @@ exports.stopEvent = functions.https.onCall(async (data, context) => {
 exports.attemptCapture = functions.https.onCall(async (data, context) => {
   const input = getInput(data);
   const pseudo = input?.pseudo;
+  const deviceId = input?.deviceId;
+
   if (!pseudo || typeof pseudo !== "string" || pseudo.trim().length < 2) {
     return { success: false, reason: "pseudo_required" };
+  }
+  if (!deviceId || typeof deviceId !== "string" || deviceId.length < 10) {
+    return { success: false, reason: "device_id_required" };
   }
 
   const cleanPseudo = pseudo.trim().substring(0, 30);
 
+  // Check event active
   const eventSnap = await db.doc(EVENT_DOC).get();
   if (!eventSnap.exists || !eventSnap.data()?.active) {
     return { success: false, reason: "no_active_event" };
@@ -67,18 +74,44 @@ exports.attemptCapture = functions.https.onCall(async (data, context) => {
   const eventData = eventSnap.data();
   const startedAt = eventData.startedAt?.toMillis?.() ?? 0;
   const duration = (eventData.durationSeconds ?? DEFAULT_DURATION) * 1000;
+
   if (Date.now() > startedAt + duration) {
     await db.doc(EVENT_DOC).update({ active: false });
     return { success: false, reason: "event_expired" };
   }
 
+  // Check how many attempts this device has made for the current event
+  const eventId = String(startedAt); // unique per event start
+  const attemptsSnap = await db
+    .collection("captures")
+    .where("deviceId", "==", deviceId)
+    .where("eventId", "==", eventId)
+    .get();
+
+  const attemptCount = attemptsSnap.size;
+
+  if (attemptCount >= MAX_ATTEMPTS) {
+    return {
+      success: false,
+      reason: "max_attempts",
+      attemptsUsed: attemptCount,
+      maxAttempts: MAX_ATTEMPTS,
+    };
+  }
+
+  // Secure RNG: 0.5% = 50 / 10000
   const roll = crypto.randomInt(0, 10000);
   const success = roll < 50;
 
+  const currentAttempt = attemptCount + 1;
+
   await db.collection("captures").add({
     pseudo: cleanPseudo,
+    deviceId,
+    eventId,
     roll,
     success,
+    attemptNumber: currentAttempt,
     encounterId: input?.encounterId ?? "suicune_001",
     timestamp: admin.firestore.FieldValue.serverTimestamp(),
   });
@@ -86,13 +119,21 @@ exports.attemptCapture = functions.https.onCall(async (data, context) => {
   if (success) {
     await db.collection("winners").add({
       pseudo: cleanPseudo,
+      deviceId,
+      eventId,
       roll,
+      attemptNumber: currentAttempt,
       encounterId: input?.encounterId ?? "suicune_001",
       timestamp: admin.firestore.FieldValue.serverTimestamp(),
     });
   }
 
-  return { success, roll };
+  return {
+    success,
+    roll,
+    attemptNumber: currentAttempt,
+    attemptsRemaining: MAX_ATTEMPTS - currentAttempt,
+  };
 });
 
 exports.getWinners = functions.https.onCall(async (data, context) => {
@@ -112,6 +153,7 @@ exports.getWinners = functions.https.onCall(async (data, context) => {
       id: doc.id,
       pseudo: d.pseudo,
       roll: d.roll,
+      attemptNumber: d.attemptNumber ?? "?",
       encounterId: d.encounterId,
       timestamp: d.timestamp?.toDate?.()?.toISOString?.() ?? null,
     });
