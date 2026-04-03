@@ -13,12 +13,12 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "RPPLF League – Suicune Encounter",
+  title: "RPPLF League – La Quête du Pokémon Aurore",
   description:
-    "Un Suicune légendaire apparaît ! Tentez votre chance avec un taux de capture de 0.5%. Événement limité.",
+    "Un Pokémon légendaire apparaît ! Tentez votre chance avec un taux de capture de 0.2%. Événement limité.",
   openGraph: {
-    title: "RPPLF League – Suicune Encounter",
-    description: "Tentez de capturer Suicune – 0.5% de chance. Êtes-vous prêt ?",
+    title: "RPPLF League – La Quête du Pokémon Aurore",
+    description: "Un Pokémon légendaire apparaît ! 0.2% de chance de capture. Êtes-vous prêt ?",
     type: "website",
   },
 };
