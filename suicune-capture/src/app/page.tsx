@@ -275,7 +275,7 @@ function LobbyScreen({ pokemon }: { pokemon: string }) {
         </div>
       </motion.div>
       <div className="absolute bottom-6 left-0 right-0 text-center">
-        <p className="text-xs text-white/15 tracking-widest uppercase">RPPLF League France</p>
+        <p className="text-xs text-white/15 tracking-widest uppercase">RPPLF</p>
       </div>
     </div>
   );
