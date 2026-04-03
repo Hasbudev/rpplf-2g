@@ -16,6 +16,7 @@ import {
 } from "@react-three/postprocessing";
 import { useEffect, useMemo, useRef, useState, Suspense } from "react";
 import * as THREE from "three";
+// import { useControls } from "leva";
 import { getPokemonConfig, type PokemonConfig } from "../lib/pokemonConfig";
 
 type Phase = "intro" | "idle" | "throwing" | "shaking" | "captured" | "fled";
@@ -35,9 +36,38 @@ export function Scene({ phase, onIntroDone, onBallHit, pokemon }: SceneProps) {
   const [debugCam, setDebugCam] = useState(false);
   const cfg = getPokemonConfig(pokemon);
 
-  const ENCOUNTER = useMemo(() => new THREE.Vector3(...cfg.encounterPos), [cfg]);
-  const CAM_POS = useMemo(() => new THREE.Vector3(...cfg.camPos), [cfg]);
-  const CAM_LOOK_OFFSET = useMemo(() => new THREE.Vector3(...cfg.camLookAtOffset), [cfg]);
+  // // === LEVA DEBUG PANEL — tweak values live, then copy to pokemonConfig.ts ===
+  // const island = useControls("Island", {
+  //   posX: { value: cfgBase.islandPos[0], min: -20, max: 20, step: 0.1 },
+  //   posY: { value: cfgBase.islandPos[1], min: -20, max: 20, step: 0.1 },
+  //   posZ: { value: cfgBase.islandPos[2], min: -20, max: 20, step: 0.1 },
+  //   scale: { value: cfgBase.islandScale, min: 0.001, max: 0.5, step: 0.001 },
+  //   rotY: { value: cfgBase.islandRotationY, min: 0, max: Math.PI * 2, step: 0.01 },
+  // });
+  // const encounter = useControls("Pokemon", {
+  //   posX: { value: cfgBase.encounterPos[0], min: -10, max: 10, step: 0.1 },
+  //   posY: { value: cfgBase.encounterPos[1], min: -10, max: 10, step: 0.1 },
+  //   posZ: { value: cfgBase.encounterPos[2], min: -10, max: 10, step: 0.1 },
+  // });
+  // const cam = useControls("Camera", {
+  //   posX: { value: cfgBase.camPos[0], min: -20, max: 20, step: 0.1 },
+  //   posY: { value: cfgBase.camPos[1], min: -20, max: 20, step: 0.1 },
+  //   posZ: { value: cfgBase.camPos[2], min: -20, max: 20, step: 0.1 },
+  // });
+
+  // const cfg = {
+  //   ...cfgBase,
+  //   islandPos: [island.posX, island.posY, island.posZ] as [number, number, number],
+  //   islandScale: island.scale,
+  //   islandRotationY: island.rotY,
+  //   encounterPos: [encounter.posX, encounter.posY, encounter.posZ] as [number, number, number],
+  //   camPos: [cam.posX, cam.posY, cam.posZ] as [number, number, number],
+  // };
+  // // === END LEVA ===
+
+   const ENCOUNTER = useMemo(() => new THREE.Vector3(...cfg.encounterPos), [cfg.encounterPos]);
+  const CAM_POS = useMemo(() => new THREE.Vector3(...cfg.camPos), [cfg.camPos]);
+  const CAM_LOOK_OFFSET = useMemo(() => new THREE.Vector3(...cfg.camLookAtOffset), [cfg.camLookAtOffset]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

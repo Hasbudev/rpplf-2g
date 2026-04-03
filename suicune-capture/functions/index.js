@@ -90,7 +90,7 @@ exports.attemptCapture = functions.https.onCall(async (data, context) => {
   }
 
   const roll = crypto.randomInt(0, 10000);
-  const success = roll < 50;
+  const success = roll < 20; // 0.2% = 20/10000
   const currentAttempt = attemptCount + 1;
 
   await db.collection("captures").add({
@@ -170,5 +170,43 @@ exports.getCaptureStats = functions.https.onCall(async (data, context) => {
     totalAttempts: total,
     totalCaptures: successes,
     captureRate: total > 0 ? ((successes / total) * 100).toFixed(2) + "%" : "0%",
+  };
+});
+
+/* ═══════════════════════════════════════════════
+   CHECK ATTEMPTS (player — called before pseudo screen)
+   ═══════════════════════════════════════════════ */
+
+exports.checkAttempts = functions.https.onCall(async (data, context) => {
+  const input = getInput(data);
+  const deviceId = input?.deviceId;
+
+  if (!deviceId || typeof deviceId !== "string" || deviceId.length < 10) {
+    return { attemptsUsed: 0, maxAttempts: MAX_ATTEMPTS, blocked: false };
+  }
+
+  const eventSnap = await db.doc(EVENT_DOC).get();
+  if (!eventSnap.exists || !eventSnap.data()?.active) {
+    return { attemptsUsed: 0, maxAttempts: MAX_ATTEMPTS, blocked: false };
+  }
+
+  const eventData = eventSnap.data();
+  const startedAt = eventData.startedAt?.toMillis?.() ?? 0;
+  const eventId = String(startedAt);
+
+  const attemptsSnap = await db
+    .collection("captures")
+    .where("deviceId", "==", deviceId)
+    .where("eventId", "==", eventId)
+    .get();
+
+  const attemptsUsed = attemptsSnap.size;
+  const hasWon = attemptsSnap.docs.some((doc) => doc.data().success === true);
+
+  return {
+    attemptsUsed,
+    maxAttempts: MAX_ATTEMPTS,
+    blocked: attemptsUsed >= MAX_ATTEMPTS || hasWon,
+    hasWon,
   };
 });

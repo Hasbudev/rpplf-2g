@@ -107,12 +107,13 @@ const POKEMON_CONFIGS: Record<string, PokemonConfig> = {
     moonColor: "#cc6644",
     fogColor: "#1a0a0a",
     bgColor: "#1a0808",
-    // Positioning (tweak after testing)
-    islandPos: [0, -4, 0],
-    islandScale: 0.035,
-    islandRotationY: 0,
-    encounterPos: [0, 5.5, 0],
-    camPos: [7, 6.5, 3],
+    // Positioning
+   // Positioning
+    islandPos: [-4.2, 3.9, -1.1],
+    islandScale: 0.17,
+    islandRotationY: 5.34,
+    encounterPos: [0.5, 5.5, -0.6],
+    camPos: [6.2, 5.0, 3.0],
     camLookAtOffset: [0, 0.3, 0],
   },
 };

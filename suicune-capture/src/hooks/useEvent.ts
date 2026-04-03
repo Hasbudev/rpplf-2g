@@ -86,7 +86,7 @@ export function useEvent(): EventState {
   return state;
 }
 
-function getDeviceId(): string {
+export function getDeviceId(): string {
   const KEY = "suicune_device_id";
   try {
     let id = localStorage.getItem(KEY);
@@ -97,6 +97,50 @@ function getDeviceId(): string {
   } catch {
     return "dev_fallback_" + Date.now().toString(36) + Math.random().toString(36).substring(2, 12);
   }
+}
+
+export interface AttemptCheck {
+  blocked: boolean;
+  hasWon: boolean;
+  attemptsUsed: number;
+  loading: boolean;
+}
+
+export function useCheckAttempts(eventActive: boolean): AttemptCheck {
+  const [state, setState] = useState<AttemptCheck>({
+    blocked: false,
+    hasWon: false,
+    attemptsUsed: 0,
+    loading: true,
+  });
+
+  useEffect(() => {
+    if (!eventActive) {
+      setState({ blocked: false, hasWon: false, attemptsUsed: 0, loading: false });
+      return;
+    }
+
+    const check = async () => {
+      try {
+        const fn = httpsCallable(functions, "checkAttempts");
+        const res = await fn({ deviceId: getDeviceId() });
+        const data = res.data as any;
+        setState({
+          blocked: Boolean(data?.blocked),
+          hasWon: Boolean(data?.hasWon),
+          attemptsUsed: data?.attemptsUsed ?? 0,
+          loading: false,
+        });
+      } catch (err) {
+        console.error("Check attempts error:", err);
+        setState((s) => ({ ...s, loading: false }));
+      }
+    };
+
+    check();
+  }, [eventActive]);
+
+  return state;
 }
 
 export interface CaptureResult {
