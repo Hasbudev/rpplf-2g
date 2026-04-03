@@ -28,7 +28,7 @@ jobs:
       - name: Build
         run: npm run build
         env:
-          NEXT_PUBLIC_BASE_PATH: /suicune-rpplf
+          NEXT_PUBLIC_BASE_PATH: /rpplf-2g
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
