@@ -16,16 +16,10 @@ function getInput(data) {
 function verifyAdmin(password) {
   const adminPassword = process.env.ADMIN_PASSWORD;
   if (!adminPassword) {
-    throw new functions.https.HttpsError(
-      "failed-precondition",
-      "Admin password not configured."
-    );
+    throw new functions.https.HttpsError("failed-precondition", "Admin password not configured.");
   }
   if (password !== adminPassword) {
-    throw new functions.https.HttpsError(
-      "permission-denied",
-      "Mot de passe incorrect."
-    );
+    throw new functions.https.HttpsError("permission-denied", "Mot de passe incorrect.");
   }
 }
 
@@ -34,14 +28,16 @@ exports.startEvent = functions.https.onCall(async (data, context) => {
   verifyAdmin(input?.password);
 
   const duration = input?.durationSeconds ?? DEFAULT_DURATION;
+  const pokemon = input?.pokemon ?? "suicune";
 
   await db.doc(EVENT_DOC).set({
     active: true,
     startedAt: admin.firestore.FieldValue.serverTimestamp(),
     durationSeconds: duration,
+    pokemon,
   });
 
-  return { success: true, durationSeconds: duration };
+  return { success: true, durationSeconds: duration, pokemon };
 });
 
 exports.stopEvent = functions.https.onCall(async (data, context) => {
@@ -65,7 +61,6 @@ exports.attemptCapture = functions.https.onCall(async (data, context) => {
 
   const cleanPseudo = pseudo.trim().substring(0, 30);
 
-  // Check event active
   const eventSnap = await db.doc(EVENT_DOC).get();
   if (!eventSnap.exists || !eventSnap.data()?.active) {
     return { success: false, reason: "no_active_event" };
@@ -74,14 +69,14 @@ exports.attemptCapture = functions.https.onCall(async (data, context) => {
   const eventData = eventSnap.data();
   const startedAt = eventData.startedAt?.toMillis?.() ?? 0;
   const duration = (eventData.durationSeconds ?? DEFAULT_DURATION) * 1000;
+  const pokemon = eventData.pokemon ?? "suicune";
 
   if (Date.now() > startedAt + duration) {
     await db.doc(EVENT_DOC).update({ active: false });
     return { success: false, reason: "event_expired" };
   }
 
-  // Check how many attempts this device has made for the current event
-  const eventId = String(startedAt); // unique per event start
+  const eventId = String(startedAt);
   const attemptsSnap = await db
     .collection("captures")
     .where("deviceId", "==", deviceId)
@@ -91,18 +86,11 @@ exports.attemptCapture = functions.https.onCall(async (data, context) => {
   const attemptCount = attemptsSnap.size;
 
   if (attemptCount >= MAX_ATTEMPTS) {
-    return {
-      success: false,
-      reason: "max_attempts",
-      attemptsUsed: attemptCount,
-      maxAttempts: MAX_ATTEMPTS,
-    };
+    return { success: false, reason: "max_attempts", attemptsUsed: attemptCount, maxAttempts: MAX_ATTEMPTS };
   }
 
-  // Secure RNG: 0.5% = 50 / 10000
   const roll = crypto.randomInt(0, 10000);
   const success = roll < 50;
-
   const currentAttempt = attemptCount + 1;
 
   await db.collection("captures").add({
@@ -112,7 +100,8 @@ exports.attemptCapture = functions.https.onCall(async (data, context) => {
     roll,
     success,
     attemptNumber: currentAttempt,
-    encounterId: input?.encounterId ?? "suicune_001",
+    pokemon,
+    encounterId: input?.encounterId ?? `${pokemon}_001`,
     timestamp: admin.firestore.FieldValue.serverTimestamp(),
   });
 
@@ -123,17 +112,13 @@ exports.attemptCapture = functions.https.onCall(async (data, context) => {
       eventId,
       roll,
       attemptNumber: currentAttempt,
-      encounterId: input?.encounterId ?? "suicune_001",
+      pokemon,
+      encounterId: input?.encounterId ?? `${pokemon}_001`,
       timestamp: admin.firestore.FieldValue.serverTimestamp(),
     });
   }
 
-  return {
-    success,
-    roll,
-    attemptNumber: currentAttempt,
-    attemptsRemaining: MAX_ATTEMPTS - currentAttempt,
-  };
+  return { success, roll, attemptNumber: currentAttempt, attemptsRemaining: MAX_ATTEMPTS - currentAttempt };
 });
 
 exports.getWinners = functions.https.onCall(async (data, context) => {
@@ -153,6 +138,7 @@ exports.getWinners = functions.https.onCall(async (data, context) => {
       id: doc.id,
       pseudo: d.pseudo,
       roll: d.roll,
+      pokemon: d.pokemon ?? "suicune",
       attemptNumber: d.attemptNumber ?? "?",
       encounterId: d.encounterId,
       timestamp: d.timestamp?.toDate?.()?.toISOString?.() ?? null,

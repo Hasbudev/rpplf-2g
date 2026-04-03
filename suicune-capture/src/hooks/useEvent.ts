@@ -12,6 +12,7 @@ export interface EventState {
   duration: number;
   startedAt: number | null;
   loading: boolean;
+  pokemon: string;
 }
 
 export function useEvent(): EventState {
@@ -22,6 +23,7 @@ export function useEvent(): EventState {
     duration: 600,
     startedAt: null,
     loading: true,
+    pokemon: "suicune",
   });
 
   useEffect(() => {
@@ -37,12 +39,14 @@ export function useEvent(): EventState {
         const active = data.active === true;
         const durationSeconds = data.durationSeconds ?? 600;
         const startedAt = data.startedAt?.toMillis?.() ?? data.startedAt ?? null;
+        const pokemon = data.pokemon ?? "suicune";
 
         setState((s) => ({
           ...s,
           active,
           duration: durationSeconds,
           startedAt,
+          pokemon,
           loading: false,
         }));
       },
@@ -82,28 +86,15 @@ export function useEvent(): EventState {
   return state;
 }
 
-/**
- * Generate or retrieve a persistent device ID for anti-cheat.
- */
 function getDeviceId(): string {
   const KEY = "suicune_device_id";
   try {
     let id = localStorage.getItem(KEY);
     if (id && id.length >= 20) return id;
-
-    // Generate a new one
-    id =
-      "dev_" +
-      Date.now().toString(36) +
-      "_" +
-      Math.random().toString(36).substring(2, 12) +
-      "_" +
-      Math.random().toString(36).substring(2, 12);
-
+    id = "dev_" + Date.now().toString(36) + "_" + Math.random().toString(36).substring(2, 12) + "_" + Math.random().toString(36).substring(2, 12);
     localStorage.setItem(KEY, id);
     return id;
   } catch {
-    // Fallback if localStorage is blocked
     return "dev_fallback_" + Date.now().toString(36) + Math.random().toString(36).substring(2, 12);
   }
 }
@@ -115,19 +106,16 @@ export interface CaptureResult {
   reason?: string;
 }
 
-/**
- * Capture hook — sends pseudo + deviceId
- */
 export function useCapture() {
   const [busy, setBusy] = useState(false);
 
-  const attempt = useCallback(async (pseudo: string): Promise<CaptureResult> => {
+  const attempt = useCallback(async (pseudo: string, pokemon: string): Promise<CaptureResult> => {
     if (busy) return { success: false, reason: "busy" };
     setBusy(true);
     try {
       const fn = httpsCallable(functions, "attemptCapture");
       const res = await fn({
-        encounterId: "suicune_001",
+        encounterId: `${pokemon}_001`,
         pseudo,
         deviceId: getDeviceId(),
       });
