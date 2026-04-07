@@ -508,16 +508,16 @@ function BattleScreen({ battle, pokemonData, selectedPokemon, menuMode, setMenuM
                 key={i}
                 disabled={battle.busy}
                 onClick={() => onAttack(i)}
-                className="bg-white border-[3px] border-black p-2 text-xs font-bold hover:bg-[#ffe080] disabled:opacity-40 text-left"
+                className="bg-white border-[3px] border-black p-2 text-xs font-bold text-black hover:bg-[#ffe080] disabled:opacity-40 text-left"
                 style={{ boxShadow: "3px 3px 0 #000", fontFamily: "'Courier New', monospace" }}
               >
                 <div>{m.name.toUpperCase()}</div>
-                <div className="text-[9px] text-gray-600">PUI: {m.power}</div>
+                <div className="text-[9px] text-black">PUI: {m.power}</div>
               </button>
             ))}
             <button
               onClick={() => setMenuMode("main")}
-              className="col-span-2 text-xs text-gray-700 underline mt-1"
+              className="col-span-2 text-xs text-black underline mt-1"
             >
               ← Retour
             </button>
