@@ -1,0 +1,96 @@
+// Player roster — fetches Google Sheet CSV and gets player teams
+
+const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSZ0qbvf7TJWpSvNIKfRmA_2mQcpOIYgkvGJQlg-zUghZocRvqQMDrQ68isMkTyCnOUKVO-1FPnw6Cq/pub?gid=1351092451&single=true&output=csv";
+
+export interface PlayerPokemon {
+  name: string;
+  level: number;
+}
+
+export interface Player {
+  name: string;
+  team: PlayerPokemon[];
+}
+
+let cachedPlayers: Player[] | null = null;
+let cacheTime = 0;
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+
+function parseCSV(text: string): string[][] {
+  const rows: string[][] = [];
+  const lines = text.split(/\r?\n/);
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    // Simple CSV parser (handles basic cases — no embedded commas/quotes)
+    const fields: string[] = [];
+    let current = "";
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const c = line[i];
+      if (c === '"') {
+        inQuotes = !inQuotes;
+      } else if (c === "," && !inQuotes) {
+        fields.push(current);
+        current = "";
+      } else {
+        current += c;
+      }
+    }
+    fields.push(current);
+    rows.push(fields);
+  }
+  return rows;
+}
+
+export async function fetchPlayers(): Promise<Player[]> {
+  if (cachedPlayers && Date.now() - cacheTime < CACHE_DURATION) {
+    return cachedPlayers;
+  }
+
+  try {
+    const res = await fetch(SHEET_CSV_URL);
+    if (!res.ok) throw new Error("Failed to fetch sheet");
+    const text = await res.text();
+    const rows = parseCSV(text);
+
+    // Skip first 2 rows (header rows: "Equipe / PC" merged + column letters)
+    const dataRows = rows.slice(2);
+
+    const players: Player[] = [];
+    for (const row of dataRows) {
+      const name = (row[0] || "").trim();
+      if (!name) continue;
+
+      const team: PlayerPokemon[] = [];
+      // Columns B-M are equipe (indices 1-12), pairs of name/level
+      for (let i = 1; i < 13; i += 2) {
+        const pokemonName = (row[i] || "").trim();
+        const levelStr = (row[i + 1] || "").trim();
+        if (pokemonName && levelStr) {
+          const level = parseInt(levelStr, 10);
+          if (!isNaN(level)) {
+            team.push({ name: pokemonName, level });
+          }
+        }
+      }
+
+      if (team.length > 0) {
+        players.push({ name, team });
+      }
+    }
+
+    cachedPlayers = players;
+    cacheTime = Date.now();
+    return players;
+  } catch (err) {
+    console.error("Failed to fetch players:", err);
+    return [];
+  }
+}
+
+// Find a player by pseudo (case-insensitive, trimmed)
+export async function findPlayer(pseudo: string): Promise<Player | null> {
+  const players = await fetchPlayers();
+  const search = pseudo.trim().toLowerCase();
+  return players.find((p) => p.name.toLowerCase() === search) ?? null;
+}

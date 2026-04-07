@@ -7,7 +7,7 @@ import { functions } from "../../lib/firebase";
 const POKEMON_OPTIONS = [
   { id: "suicune", label: "Suicune", color: "cyan" },
   { id: "entei", label: "Entei", color: "red" },
-  // { id: "raikou", label: "Raikou", color: "yellow" },  // uncomment when ready
+  { id: "raikou", label: "Raikou", color: "yellow" },
 ];
 
 export default function AdminPage() {

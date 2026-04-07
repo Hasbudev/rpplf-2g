@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Scene } from "../components/Scene";
 import { useEvent, useCapture, useCheckAttempts, CaptureResult } from "../hooks/useEvent";
 import { getPokemonConfig } from "../lib/pokemonConfig";
+import { RaikouBattle } from "../components/RaikouBattle";
 
 const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
 const MAX_ATTEMPTS = 3;
@@ -115,6 +116,21 @@ export default function Page() {
         setPseudo={setPseudo}
         cfg={cfg}
         onConfirm={() => { if (pseudo.trim().length >= 2) setPseudoConfirmed(true); }}
+      />
+    );
+  }
+
+  /* ─── Raikou 2D battle mode ─── */
+  if (event.active && pseudoConfirmed && cfg.renderMode === "2d-battle") {
+    return (
+      <RaikouBattle
+        pseudo={pseudo}
+        onComplete={(won) => {
+          // Optional: track result, redirect, etc.
+          // For now, just go back to lobby
+          setPseudoConfirmed(false);
+          setPseudo("");
+        }}
       />
     );
   }
