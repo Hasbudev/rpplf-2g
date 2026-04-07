@@ -1,6 +1,11 @@
-// Player roster — fetches Google Sheet CSV and gets player teams
+// Player roster — fetches Google Sheet CSV and gets player teams + badges
 
 const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSZ0qbvf7TJWpSvNIKfRmA_2mQcpOIYgkvGJQlg-zUghZocRvqQMDrQ68isMkTyCnOUKVO-1FPnw6Cq/pub?gid=1351092451&single=true&output=csv";
+
+// Badge column indices (A=0, B=1...)
+// AM=38, AQ=42, AU=46, AY=50
+const BADGE_COLUMNS = [38, 42, 46, 50];
+export const REQUIRED_BADGES = 4;
 
 export interface PlayerPokemon {
   name: string;
@@ -10,18 +15,18 @@ export interface PlayerPokemon {
 export interface Player {
   name: string;
   team: PlayerPokemon[];
+  badges: number;
 }
 
 let cachedPlayers: Player[] | null = null;
 let cacheTime = 0;
-const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+const CACHE_DURATION = 5 * 60 * 1000;
 
 function parseCSV(text: string): string[][] {
   const rows: string[][] = [];
   const lines = text.split(/\r?\n/);
   for (const line of lines) {
     if (!line.trim()) continue;
-    // Simple CSV parser (handles basic cases — no embedded commas/quotes)
     const fields: string[] = [];
     let current = "";
     let inQuotes = false;
@@ -52,8 +57,6 @@ export async function fetchPlayers(): Promise<Player[]> {
     if (!res.ok) throw new Error("Failed to fetch sheet");
     const text = await res.text();
     const rows = parseCSV(text);
-
-    // Skip first 2 rows (header rows: "Equipe / PC" merged + column letters)
     const dataRows = rows.slice(2);
 
     const players: Player[] = [];
@@ -62,7 +65,7 @@ export async function fetchPlayers(): Promise<Player[]> {
       if (!name) continue;
 
       const team: PlayerPokemon[] = [];
-      // Columns B-M are equipe (indices 1-12), pairs of name/level
+      // Columns B-M (indices 1-12), pairs of name/level
       for (let i = 1; i < 13; i += 2) {
         const pokemonName = (row[i] || "").trim();
         const levelStr = (row[i + 1] || "").trim();
@@ -74,8 +77,17 @@ export async function fetchPlayers(): Promise<Player[]> {
         }
       }
 
+      // Count badges from columns AM, AQ, AU, AY
+      let badges = 0;
+      for (const col of BADGE_COLUMNS) {
+        const val = (row[col] || "").trim().toLowerCase();
+        if (val === "oui" || val === "yes" || val === "o" || val === "x" || val === "1" || val === "true") {
+          badges++;
+        }
+      }
+
       if (team.length > 0) {
-        players.push({ name, team });
+        players.push({ name, team, badges });
       }
     }
 
@@ -88,7 +100,6 @@ export async function fetchPlayers(): Promise<Player[]> {
   }
 }
 
-// Find a player by pseudo (case-insensitive, trimmed)
 export async function findPlayer(pseudo: string): Promise<Player | null> {
   const players = await fetchPlayers();
   const search = pseudo.trim().toLowerCase();

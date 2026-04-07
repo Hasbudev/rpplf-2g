@@ -127,6 +127,9 @@ export default function AdminPage() {
                 );
               })}
             </div>
+            {pokemon === "raikou" && (
+              <p className="text-xs text-yellow-400/60 mt-2">⚡ Mode combat 2D — équipe entière requise (4 badges min)</p>
+            )}
           </div>
 
           <div className="mb-4">
