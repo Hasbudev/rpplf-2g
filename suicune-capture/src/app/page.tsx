@@ -28,6 +28,8 @@ export default function Page() {
   const [throwing, setThrowing] = useState(false);
   const [attempts, setAttempts] = useState(0);
   const [attemptsRemaining, setAttemptsRemaining] = useState(MAX_ATTEMPTS);
+  // Track if user is actively in Raikou battle — prevents kick on timer end
+  const [inRaikouBattle, setInRaikouBattle] = useState(false);
 
   const pokeName = cfg.displayName;
 
@@ -89,27 +91,30 @@ export default function Page() {
   }, []);
 
   useEffect(() => {
-    if (!event.active && phase !== "intro" && !event.loading) {
+    // Don't kick players who are currently in a Raikou battle when timer ends
+    if (!event.active && phase !== "intro" && !event.loading && !inRaikouBattle) {
       setPhase("intro");
       setMessage("L'événement est terminé.");
       setAttempts(0);
       setAttemptsRemaining(MAX_ATTEMPTS);
     }
-  }, [event.active, event.loading, phase]);
+  }, [event.active, event.loading, phase, inRaikouBattle]);
 
   const canThrow = phase === "idle" && !throwing && event.active && attemptsRemaining > 0;
   const showResult = phase === "captured" || phase === "fled" || phase === "exhausted";
 
-  if (!event.active && !event.loading && phase === "intro") {
+  // Lobby — only show if NOT in a Raikou battle
+  if (!event.active && !event.loading && phase === "intro" && !inRaikouBattle) {
     return <LobbyScreen pokemon={event.pokemon} />;
   }
 
-  /* Block if device already used all attempts or already won (3D modes only) */
+  // Block if device already used all attempts (3D modes only)
   if (event.active && !check.loading && check.blocked && cfg.renderMode !== "2d-battle") {
     return <BlockedScreen cfg={cfg} hasWon={check.hasWon} />;
   }
 
-  if (event.active && !pseudoConfirmed) {
+  // Pseudo input — only when event is active and not already in battle
+  if (event.active && !pseudoConfirmed && !inRaikouBattle) {
     return (
       <PseudoScreen
         pseudo={pseudo}
@@ -120,14 +125,20 @@ export default function Page() {
     );
   }
 
-  /* ─── Raikou 2D battle mode ─── */
-  if (event.active && pseudoConfirmed && cfg.renderMode === "2d-battle") {
+  /* ─── Raikou 2D battle ─── */
+  if ((event.active || inRaikouBattle) && pseudoConfirmed && cfg.renderMode === "2d-battle") {
+    // Mark as in-battle to prevent timer kick
+    if (!inRaikouBattle) {
+      setInRaikouBattle(true);
+    }
     return (
       <RaikouBattle
         pseudo={pseudo}
         onComplete={() => {
+          setInRaikouBattle(false);
           setPseudoConfirmed(false);
           setPseudo("");
+          setPhase("intro");
         }}
       />
     );
@@ -233,12 +244,7 @@ function BlockedScreen({ cfg, hasWon }: { cfg: ReturnType<typeof getPokemonConfi
       {isElectricType && <ElectricSparks />}
       {!isFireType && !isElectricType && <div className="lobby-bg absolute inset-0" />}
 
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.6 }}
-        className="relative z-10 max-w-sm text-center"
-      >
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }} className="relative z-10 max-w-sm text-center">
         <div className="mx-auto w-20 h-20 rounded-full flex items-center justify-center mb-6" style={{
           background: hasWon ? "linear-gradient(135deg, rgba(250, 204, 21, 0.15), rgba(245, 158, 11, 0.08))" : "rgba(100, 116, 139, 0.1)",
           border: hasWon ? "1px solid rgba(250, 204, 21, 0.25)" : "1px solid rgba(100, 116, 139, 0.15)",
@@ -256,9 +262,7 @@ function BlockedScreen({ cfg, hasWon }: { cfg: ReturnType<typeof getPokemonConfi
             : `Vous avez déjà utilisé vos 3 essais pour cet événement ${cfg.displayName}. Attendez le prochain événement.`}
         </p>
 
-        <p className="text-xs text-white/20">
-          Cet appareil a été reconnu. Changer de pseudo ne changera rien.
-        </p>
+        <p className="text-xs text-white/20">Cet appareil a été reconnu. Changer de pseudo ne changera rien.</p>
 
         <div className="mt-8 flex justify-center">
           <img src={`${BASE_PATH}/textures/logo.png`} alt="RPPLF League" className="w-20 opacity-30" />
@@ -315,13 +319,9 @@ function LobbyScreen({ pokemon }: { pokemon: string }) {
         <div className="w-16 h-px mx-auto my-8" style={{ background: `linear-gradient(to right, transparent, ${cfg.accentColorHex}40, transparent)` }} />
         <p className="text-sm text-white/40 max-w-md mx-auto leading-relaxed mb-3">
           {isElectricType ? (
-            <>
-              L'événement n'est pas actif pour le moment. Affronte <strong className="text-white/60">RAIKOU</strong> en combat avec ton équipe ! Il te faudra <strong className="text-white/60">4 badges</strong> et <strong className="text-white/60">3 Pokéballs</strong> pour le capturer.
-            </>
+            <>L'événement n'est pas actif pour le moment. Affronte <strong className="text-white/60">RAIKOU</strong> en combat avec ton équipe ! Il te faudra <strong className="text-white/60">4 badges</strong> et <strong className="text-white/60">3 Pokéballs</strong> pour le capturer.</>
           ) : (
-            <>
-              L'événement n'est pas actif pour le moment. Quand il sera lancé, vous aurez <strong className="text-white/60">10 minutes</strong> et <strong className="text-white/60">3 essais</strong> pour tenter de capturer {cfg.displayName}.
-            </>
+            <>L'événement n'est pas actif pour le moment. Quand il sera lancé, vous aurez <strong className="text-white/60">10 minutes</strong> et <strong className="text-white/60">3 essais</strong> pour tenter de capturer {cfg.displayName}.</>
           )}
         </p>
         <p className="text-xs text-white/25">
@@ -449,9 +449,7 @@ function ResultOverlay({ phase, onReset, pseudo, cfg }: {
   );
 }
 
-/* ═══════════════════════════════════════════════
-   FIRE EMBERS — for Entei
-   ═══════════════════════════════════════════════ */
+/* ═══════════════════════════════════════════════ */
 
 function FireEmbers() {
   const embers = useMemo(() =>
@@ -470,20 +468,14 @@ function FireEmbers() {
   return (
     <div className="absolute inset-0 pointer-events-none overflow-hidden">
       {embers.map((e) => (
-        <div
-          key={e.id}
-          className="absolute rounded-full"
-          style={{
-            left: `${e.left}%`,
-            bottom: "-5%",
-            width: e.size,
-            height: e.size,
-            backgroundColor: e.color,
-            boxShadow: `0 0 ${e.size * 2}px ${e.color}`,
-            opacity: e.opacity,
-            animation: `ember-rise ${e.duration}s ${e.delay}s infinite linear`,
-          }}
-        />
+        <div key={e.id} className="absolute rounded-full" style={{
+          left: `${e.left}%`, bottom: "-5%",
+          width: e.size, height: e.size,
+          backgroundColor: e.color,
+          boxShadow: `0 0 ${e.size * 2}px ${e.color}`,
+          opacity: e.opacity,
+          animation: `ember-rise ${e.duration}s ${e.delay}s infinite linear`,
+        }} />
       ))}
       <style>{`
         @keyframes ember-rise {
@@ -496,10 +488,6 @@ function FireEmbers() {
     </div>
   );
 }
-
-/* ═══════════════════════════════════════════════
-   ELECTRIC SPARKS — for Raikou
-   ═══════════════════════════════════════════════ */
 
 function ElectricSparks() {
   const sparks = useMemo(() =>
@@ -518,20 +506,14 @@ function ElectricSparks() {
   return (
     <div className="absolute inset-0 pointer-events-none overflow-hidden">
       {sparks.map((s) => (
-        <div
-          key={s.id}
-          className="absolute rounded-full"
-          style={{
-            left: `${s.left}%`,
-            top: `${s.top}%`,
-            width: s.size,
-            height: s.size,
-            backgroundColor: s.color,
-            boxShadow: `0 0 ${s.size * 3}px ${s.color}, 0 0 ${s.size * 6}px ${s.color}`,
-            opacity: s.opacity,
-            animation: `electric-pulse ${s.duration}s ${s.delay}s infinite ease-in-out`,
-          }}
-        />
+        <div key={s.id} className="absolute rounded-full" style={{
+          left: `${s.left}%`, top: `${s.top}%`,
+          width: s.size, height: s.size,
+          backgroundColor: s.color,
+          boxShadow: `0 0 ${s.size * 3}px ${s.color}, 0 0 ${s.size * 6}px ${s.color}`,
+          opacity: s.opacity,
+          animation: `electric-pulse ${s.duration}s ${s.delay}s infinite ease-in-out`,
+        }} />
       ))}
       <style>{`
         @keyframes electric-pulse {
@@ -542,10 +524,6 @@ function ElectricSparks() {
     </div>
   );
 }
-
-/* ═══════════════════════════════════════════════
-   LIGHTNING STRIKES — soft, occasional
-   ═══════════════════════════════════════════════ */
 
 function LightningStrikes() {
   const [flash, setFlash] = useState(false);
@@ -575,14 +553,11 @@ function LightningStrikes() {
   }, []);
 
   return (
-    <div
-      className="absolute inset-0 pointer-events-none transition-opacity"
-      style={{
-        background: flash ? "radial-gradient(ellipse at 50% 0%, rgba(253, 224, 71, 0.15) 0%, transparent 60%)" : "transparent",
-        opacity: flash ? 1 : 0,
-        transitionDuration: flash ? "20ms" : "300ms",
-      }}
-    />
+    <div className="absolute inset-0 pointer-events-none transition-opacity" style={{
+      background: flash ? "radial-gradient(ellipse at 50% 0%, rgba(253, 224, 71, 0.15) 0%, transparent 60%)" : "transparent",
+      opacity: flash ? 1 : 0,
+      transitionDuration: flash ? "20ms" : "300ms",
+    }} />
   );
 }
 

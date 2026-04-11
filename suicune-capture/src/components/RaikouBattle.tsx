@@ -1,19 +1,21 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { motion } from "framer-motion";
 import { fetchPlayers, REQUIRED_BADGES, type Player, type PlayerPokemon } from "../lib/playerRoster";
 import { fetchPokemonData, type PokemonData } from "../lib/pokeApi";
 import {
   calculateDamage, calculateMaxHP, calculateCaptureRate,
-  effectivenessVsElectric, electricVsType,
-  TYPE_MOVES, RAIKOU_MOVES, TYPE_COLORS,
-  type PokemonType,
+  getEffectiveness, pickMovesForPokemon,
+  RAIKOU_MOVES, TYPE_COLORS,
+  canMoveWithParalysis, burnDamage, poisonDamage,
+  type Move, type PokemonType, type StatusState,
 } from "../lib/battleSystem";
 
 const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
-const RAIKOU_LEVEL = 30;
-const RAIKOU_MAX_HP = 130;
+const RAIKOU_LEVEL = 50;
+const RAIKOU_MAX_HP = 160;
+const RAIKOU_TYPES: PokemonType[] = ["Électrik"];
 const MAX_POKEBALLS = 3;
 
 type Phase = "loading" | "not_found" | "not_enough_badges" | "team_select" | "battle" | "switch_pokemon" | "victory" | "defeat" | "fled";
@@ -24,11 +26,14 @@ interface TeamMember {
   currentHP: number;
   maxHP: number;
   fainted: boolean;
+  moves: Move[];
+  status: StatusState;
 }
 
 interface BattleState {
   raikouHP: number;
   raikouMaxHP: number;
+  raikouStatus: StatusState;
   pokeballsLeft: number;
   log: string[];
   busy: boolean;
@@ -38,15 +43,19 @@ export function RaikouBattle({ pseudo, onComplete }: { pseudo: string; onComplet
   const [phase, setPhase] = useState<Phase>("loading");
   const [player, setPlayer] = useState<Player | null>(null);
   const [team, setTeam] = useState<TeamMember[]>([]);
+  const teamRef = useRef<TeamMember[]>([]);
+  useEffect(() => { teamRef.current = team; }, [team]);
+
   const [activeIdx, setActiveIdx] = useState(0);
   const [battle, setBattle] = useState<BattleState>({
     raikouHP: RAIKOU_MAX_HP, raikouMaxHP: RAIKOU_MAX_HP,
+    raikouStatus: { status: null },
     pokeballsLeft: MAX_POKEBALLS, log: [], busy: false,
   });
   const [menuMode, setMenuMode] = useState<"main" | "moves">("main");
   const [ballAnim, setBallAnim] = useState<"idle" | "throwing" | "shaking" | "success" | "fail">("idle");
 
-  // Load player from sheet
+  // Load player
   useEffect(() => {
     (async () => {
       const players = await fetchPlayers();
@@ -60,13 +69,16 @@ export function RaikouBattle({ pseudo, onComplete }: { pseudo: string; onComplet
         setPhase("not_enough_badges");
         return;
       }
-      // Fetch all team data
       const teamData: TeamMember[] = [];
       for (const p of found.team) {
         const data = await fetchPokemonData(p.name);
         if (data) {
           const maxHP = calculateMaxHP(p.level, data.baseHP);
-          teamData.push({ pokemon: p, data, currentHP: maxHP, maxHP, fainted: false });
+          const moves = pickMovesForPokemon(data.types);
+          teamData.push({
+            pokemon: p, data, currentHP: maxHP, maxHP, fainted: false,
+            moves, status: { status: null },
+          });
         }
       }
       setTeam(teamData);
@@ -80,6 +92,7 @@ export function RaikouBattle({ pseudo, onComplete }: { pseudo: string; onComplet
     setActiveIdx(idx);
     setBattle({
       raikouHP: RAIKOU_MAX_HP, raikouMaxHP: RAIKOU_MAX_HP,
+      raikouStatus: { status: null },
       pokeballsLeft: MAX_POKEBALLS,
       log: [`Un RAIKOU sauvage apparaît !`, `Allez ${team[idx].pokemon.name.toUpperCase()} !`],
       busy: false,
@@ -98,68 +111,97 @@ export function RaikouBattle({ pseudo, onComplete }: { pseudo: string; onComplet
     setMenuMode("main");
   }, [team]);
 
-  // Player attacks
-  const playerAttack = useCallback(async (moveIndex: number) => {
-    const active = team[activeIdx];
-    if (!active || battle.busy) return;
-    setBattle((b) => ({ ...b, busy: true }));
-    setMenuMode("main");
+  const applyStatusDamage = useCallback(async (member: TeamMember, idx: number) => {
+    const s = member.status.status;
+    if (s === "burn") {
+      const dmg = burnDamage(member.maxHP);
+      const newHP = Math.max(0, member.currentHP - dmg);
+      setTeam((prev) => prev.map((m, i) => i === idx ? { ...m, currentHP: newHP, fainted: newHP <= 0 } : m));
+      setBattle((b) => ({ ...b, log: [...b.log, `${member.pokemon.name.toUpperCase()} souffre de sa brûlure ! -${dmg} PV`] }));
+      await sleep(900);
+      return newHP <= 0;
+    }
+    if (s === "poison") {
+      const dmg = poisonDamage(member.maxHP);
+      const newHP = Math.max(0, member.currentHP - dmg);
+      setTeam((prev) => prev.map((m, i) => i === idx ? { ...m, currentHP: newHP, fainted: newHP <= 0 } : m));
+      setBattle((b) => ({ ...b, log: [...b.log, `${member.pokemon.name.toUpperCase()} souffre du poison ! -${dmg} PV`] }));
+      await sleep(900);
+      return newHP <= 0;
+    }
+    return false;
+  }, []);
 
-    const playerType = active.data.types[0] || "Normal";
-    const moves = TYPE_MOVES[playerType];
-    const move = moves[moveIndex];
-    const isStab = active.data.types.includes(playerType);
-    const eff = effectivenessVsElectric(playerType);
-    const damage = calculateDamage(active.pokemon.level, move.power, eff, isStab);
-
-    setBattle((b) => ({ ...b, log: [`${active.pokemon.name.toUpperCase()} utilise ${move.name} !`] }));
-    await sleep(900);
-
-    let effMsg = "";
-    if (eff > 1) effMsg = " C'est super efficace !";
-    else if (eff < 1 && eff > 0) effMsg = " Pas très efficace…";
-    else if (eff === 0) effMsg = " Aucun effet !";
-
-    const newRaikouHP = Math.max(0, battle.raikouHP - damage);
-    setBattle((b) => ({ ...b, raikouHP: newRaikouHP, log: [...b.log, `${damage} dégâts !${effMsg}`] }));
-    await sleep(1100);
-
-    if (newRaikouHP <= 0) {
-      setBattle((b) => ({ ...b, log: [...b.log, `RAIKOU est K.O. ! Il s'enfuit dans la nuit…`], busy: false }));
-      await sleep(2200);
-      setPhase("fled");
-      onComplete(false);
+  // Raikou attacks
+  const raikouAttack = useCallback(async (active: TeamMember) => {
+    // Raikou paralysis check
+    if (battle.raikouStatus.status === "paralysis" && !canMoveWithParalysis()) {
+      setBattle((b) => ({ ...b, log: ["RAIKOU est paralysé ! Il ne peut pas attaquer…"] }));
+      await sleep(1200);
+      setBattle((b) => ({ ...b, busy: false, log: [...b.log, "Que voulez-vous faire ?"] }));
       return;
     }
 
-    // Raikou counter-attacks
-    await raikouAttack(active);
-  }, [team, activeIdx, battle, onComplete]);
-
-  const raikouAttack = useCallback(async (active: TeamMember) => {
     const raikouMove = RAIKOU_MOVES[Math.floor(Math.random() * RAIKOU_MOVES.length)];
-    const raikouEff = electricVsType(active.data.types[0] || "Normal");
-    const raikouDamage = calculateDamage(RAIKOU_LEVEL, raikouMove.power, raikouEff, raikouMove.type === "Électrik");
+    const eff = getEffectiveness(raikouMove.type, active.data.types);
+    const isStab = RAIKOU_TYPES.includes(raikouMove.type);
+    const damage = calculateDamage(RAIKOU_LEVEL, raikouMove.power, eff, isStab);
 
     setBattle((b) => ({ ...b, log: [`RAIKOU utilise ${raikouMove.name} !`] }));
     await sleep(900);
 
-    let effMsg = "";
-    if (raikouEff > 1) effMsg = " C'est super efficace !";
-    else if (raikouEff < 1 && raikouEff > 0) effMsg = " Pas très efficace…";
-    else if (raikouEff === 0) effMsg = " Aucun effet !";
+    // Status-only move (like Cage-Éclair)
+    if (raikouMove.power === 0) {
+      if (active.status.status !== null) {
+        setBattle((b) => ({ ...b, log: [...b.log, "Mais ça échoue !"] }));
+        await sleep(1100);
+      } else if (raikouMove.effect === "paralysis" && active.data.types.includes("Électrik")) {
+        setBattle((b) => ({ ...b, log: [...b.log, "Mais ça n'affecte pas !"] }));
+        await sleep(1100);
+      } else {
+        setTeam((prev) => prev.map((m, i) => i === activeIdx ? { ...m, status: { status: raikouMove.effect! } } : m));
+        setBattle((b) => ({ ...b, log: [...b.log, `${active.pokemon.name.toUpperCase()} est paralysé !`] }));
+        await sleep(1200);
+      }
+      setBattle((b) => ({ ...b, busy: false, log: [...b.log, "Que voulez-vous faire ?"] }));
+      return;
+    }
 
-    const newHP = Math.max(0, active.currentHP - raikouDamage);
+    // Immunity check
+    if (eff === 0) {
+      setBattle((b) => ({ ...b, log: [...b.log, `Ça n'affecte pas ${active.pokemon.name.toUpperCase()} !`] }));
+      await sleep(1100);
+      setBattle((b) => ({ ...b, busy: false, log: [...b.log, "Que voulez-vous faire ?"] }));
+      return;
+    }
+
+    let effMsg = "";
+    if (eff > 1) effMsg = " C'est super efficace !";
+    else if (eff < 1) effMsg = " Pas très efficace…";
+
+    const newHP = Math.max(0, active.currentHP - damage);
     setTeam((prev) => prev.map((m, i) => i === activeIdx ? { ...m, currentHP: newHP, fainted: newHP <= 0 } : m));
-    setBattle((b) => ({ ...b, log: [...b.log, `${raikouDamage} dégâts !${effMsg}`] }));
+    setBattle((b) => ({ ...b, log: [...b.log, `${damage} dégâts !${effMsg}`] }));
     await sleep(1100);
+
+    // Apply secondary effect
+    if (raikouMove.effect && raikouMove.effectChance && Math.random() < raikouMove.effectChance && active.status.status === null) {
+      // Don't paralyze electric types, don't burn fire types
+      const canApply =
+        !(raikouMove.effect === "paralysis" && active.data.types.includes("Électrik")) &&
+        !(raikouMove.effect === "burn" && active.data.types.includes("Feu"));
+      if (canApply) {
+        setTeam((prev) => prev.map((m, i) => i === activeIdx ? { ...m, status: { status: raikouMove.effect! } } : m));
+        const effectName = raikouMove.effect === "burn" ? "brûlé" : raikouMove.effect === "paralysis" ? "paralysé" : raikouMove.effect;
+        setBattle((b) => ({ ...b, log: [...b.log, `${active.pokemon.name.toUpperCase()} est ${effectName} !`] }));
+        await sleep(1200);
+      }
+    }
 
     if (newHP <= 0) {
       setBattle((b) => ({ ...b, log: [...b.log, `${active.pokemon.name.toUpperCase()} est K.O. !`] }));
       await sleep(1500);
-
-      // Check if any pokemon left
-      const aliveCount = team.filter((m, i) => i !== activeIdx && !m.fainted).length;
+      const aliveCount = teamRef.current.filter((m, i) => i !== activeIdx && !m.fainted).length;
       if (aliveCount === 0) {
         setBattle((b) => ({ ...b, log: [...b.log, "Toute votre équipe est K.O. !"], busy: false }));
         await sleep(2000);
@@ -167,18 +209,97 @@ export function RaikouBattle({ pseudo, onComplete }: { pseudo: string; onComplet
         onComplete(false);
         return;
       }
-      // Force pokemon switch
       setBattle((b) => ({ ...b, busy: false }));
       setPhase("switch_pokemon");
       return;
     }
 
     setBattle((b) => ({ ...b, busy: false, log: [...b.log, "Que voulez-vous faire ?"] }));
-  }, [team, activeIdx, onComplete]);
+  }, [battle.raikouStatus, activeIdx, onComplete]);
 
-  // Try to capture
+  // Player attacks
+  const playerAttack = useCallback(async (moveIndex: number) => {
+    const active = teamRef.current[activeIdx];
+    if (!active || battle.busy) return;
+    setBattle((b) => ({ ...b, busy: true }));
+    setMenuMode("main");
+
+    // Paralysis check
+    if (active.status.status === "paralysis" && !canMoveWithParalysis()) {
+      setBattle((b) => ({ ...b, log: [`${active.pokemon.name.toUpperCase()} est paralysé ! Il ne peut pas bouger…`] }));
+      await sleep(1400);
+      await raikouAttack(active);
+      return;
+    }
+
+    const move = active.moves[moveIndex];
+    const isStab = active.data.types.includes(move.type);
+    const eff = getEffectiveness(move.type, RAIKOU_TYPES);
+    const damage = calculateDamage(active.pokemon.level, move.power, eff, isStab);
+
+    setBattle((b) => ({ ...b, log: [`${active.pokemon.name.toUpperCase()} utilise ${move.name} !`] }));
+    await sleep(900);
+
+    if (eff === 0) {
+      setBattle((b) => ({ ...b, log: [...b.log, "Ça n'affecte pas RAIKOU !"] }));
+      await sleep(1100);
+      await raikouAttack(active);
+      return;
+    }
+
+    let effMsg = "";
+    if (eff > 1) effMsg = " C'est super efficace !";
+    else if (eff < 1) effMsg = " Pas très efficace…";
+
+    const newRaikouHP = Math.max(0, battle.raikouHP - damage);
+    setBattle((b) => ({ ...b, raikouHP: newRaikouHP, log: [...b.log, `${damage} dégâts !${effMsg}`] }));
+    await sleep(1100);
+
+    // Apply secondary effect to Raikou
+    if (move.power > 0 && move.effect && move.effectChance && Math.random() < move.effectChance && battle.raikouStatus.status === null) {
+      const canApply =
+        !(move.effect === "paralysis" && RAIKOU_TYPES.includes("Électrik")) &&
+        !(move.effect === "burn" && RAIKOU_TYPES.includes("Feu"as any));
+      if (canApply) {
+        setBattle((b) => ({ ...b, raikouStatus: { status: move.effect! }, log: [...b.log, `RAIKOU est ${move.effect === "burn" ? "brûlé" : move.effect === "paralysis" ? "paralysé" : move.effect} !`] }));
+        await sleep(1200);
+      }
+    }
+
+    if (newRaikouHP <= 0) {
+      setBattle((b) => ({ ...b, log: [...b.log, "RAIKOU est K.O. ! Il s'enfuit dans la nuit…"], busy: false }));
+      await sleep(2200);
+      setPhase("fled");
+      onComplete(false);
+      return;
+    }
+
+    await raikouAttack(active);
+
+    // Status damage at end of turn
+    const current = teamRef.current[activeIdx];
+    if (current && !current.fainted && (current.status.status === "burn" || current.status.status === "poison")) {
+      const ko = await applyStatusDamage(current, activeIdx);
+      if (ko) {
+        setBattle((b) => ({ ...b, log: [...b.log, `${current.pokemon.name.toUpperCase()} est K.O. !`] }));
+        await sleep(1500);
+        const aliveCount = teamRef.current.filter((m, i) => i !== activeIdx && !m.fainted).length;
+        if (aliveCount === 0) {
+          setBattle((b) => ({ ...b, log: [...b.log, "Toute votre équipe est K.O. !"], busy: false }));
+          await sleep(2000);
+          setPhase("defeat");
+          onComplete(false);
+          return;
+        }
+        setBattle((b) => ({ ...b, busy: false }));
+        setPhase("switch_pokemon");
+      }
+    }
+  }, [activeIdx, battle, onComplete, raikouAttack, applyStatusDamage]);
+
+  // Throw pokeball
   const throwPokeball = useCallback(async () => {
-    const active = team[activeIdx];
+    const active = teamRef.current[activeIdx];
     if (!active || battle.busy || battle.pokeballsLeft <= 0) return;
     setBattle((b) => ({ ...b, busy: true }));
 
@@ -187,15 +308,11 @@ export function RaikouBattle({ pseudo, onComplete }: { pseudo: string; onComplet
     const success = Math.random() < captureRate;
 
     setBattle((b) => ({ ...b, pokeballsLeft: b.pokeballsLeft - 1, log: ["Vous lancez une POKÉBALL !"] }));
-
-    // Throw animation
     setBallAnim("throwing");
     await sleep(900);
-
-    // Shake animation
     setBallAnim("shaking");
     setBattle((b) => ({ ...b, log: [...b.log, "La Pokéball tremble…"] }));
-    await sleep(2400); // 3 shakes
+    await sleep(2400);
 
     if (success) {
       setBallAnim("success");
@@ -219,36 +336,18 @@ export function RaikouBattle({ pseudo, onComplete }: { pseudo: string; onComplet
       return;
     }
 
-    // Raikou counter-attacks after failed catch
     await raikouAttack(active);
-  }, [team, activeIdx, battle, onComplete, raikouAttack]);
+  }, [activeIdx, battle, onComplete, raikouAttack]);
 
   /* ─── RENDER ─── */
-
-  if (phase === "loading") {
-    return <LoadingScreen />;
-  }
-  if (phase === "not_found") {
-    return <NotFoundScreen pseudo={pseudo} onClose={() => onComplete(false)} />;
-  }
-  if (phase === "not_enough_badges" && player) {
-    return <NotEnoughBadgesScreen pseudo={pseudo} badges={player.badges} onClose={() => onComplete(false)} />;
-  }
-  if (phase === "team_select") {
-    return <TeamSelect team={team} onSelect={startBattle} title="Choisis ton premier Pokémon" subtitle={`Dresseur ${pseudo} · ${player?.badges}/${REQUIRED_BADGES} badges`} />;
-  }
-  if (phase === "switch_pokemon") {
-    return <TeamSelect team={team} onSelect={switchPokemon} title="Choisis ton prochain Pokémon" subtitle="Pokémon K.O. — fais ton choix !" excludeFainted />;
-  }
-  if (phase === "victory") {
-    return <ResultScreen type="victory" pseudo={pseudo} onClose={() => onComplete(true)} />;
-  }
-  if (phase === "defeat") {
-    return <ResultScreen type="defeat" pseudo={pseudo} onClose={() => onComplete(false)} />;
-  }
-  if (phase === "fled") {
-    return <ResultScreen type="fled" pseudo={pseudo} onClose={() => onComplete(false)} />;
-  }
+  if (phase === "loading") return <LoadingScreen />;
+  if (phase === "not_found") return <NotFoundScreen pseudo={pseudo} onClose={() => onComplete(false)} />;
+  if (phase === "not_enough_badges" && player) return <NotEnoughBadgesScreen pseudo={pseudo} badges={player.badges} onClose={() => onComplete(false)} />;
+  if (phase === "team_select") return <TeamSelect team={team} onSelect={startBattle} title="Choisis ton premier Pokémon" subtitle={`Dresseur ${pseudo} · ${player?.badges}/${REQUIRED_BADGES} badges`} />;
+  if (phase === "switch_pokemon") return <TeamSelect team={team} onSelect={switchPokemon} title="Choisis ton prochain Pokémon" subtitle="Pokémon K.O. — fais ton choix !" excludeFainted />;
+  if (phase === "victory") return <ResultScreen type="victory" pseudo={pseudo} onClose={() => onComplete(true)} />;
+  if (phase === "defeat") return <ResultScreen type="defeat" pseudo={pseudo} onClose={() => onComplete(false)} />;
+  if (phase === "fled") return <ResultScreen type="fled" pseudo={pseudo} onClose={() => onComplete(false)} />;
 
   return (
     <BattleScreen
@@ -282,9 +381,7 @@ function NotFoundScreen({ pseudo, onClose }: { pseudo: string; onClose: () => vo
     <div className="h-dvh w-full flex items-center justify-center bg-[#0a0518] p-6" style={{ fontFamily: "'Courier New', monospace" }}>
       <div className="bg-[#f8f0e0] border-4 border-black p-6 max-w-sm text-center" style={{ boxShadow: "6px 6px 0 #000" }}>
         <h2 className="text-xl font-bold text-black mb-3">DRESSEUR INTROUVABLE</h2>
-        <p className="text-sm text-gray-700 mb-4">
-          Le pseudo <strong className="text-black">{pseudo}</strong> n'est pas dans la liste de la saison 2G.
-        </p>
+        <p className="text-sm text-gray-700 mb-4">Le pseudo <strong className="text-black">{pseudo}</strong> n'est pas dans la liste de la saison 2G.</p>
         <p className="text-xs text-gray-500 mb-4">Vérifie l'orthographe et réessaie.</p>
         <button onClick={onClose} className="bg-black text-white px-4 py-2 text-sm font-bold hover:bg-gray-800">RETOUR</button>
       </div>
@@ -306,9 +403,7 @@ function NotEnoughBadgesScreen({ pseudo, badges, onClose }: { pseudo: string; ba
             <div key={i} className="w-10 h-10 border-2 border-black flex items-center justify-center font-bold" style={{
               background: i < badges ? "#fbbf24" : "#e5e5e5",
               color: i < badges ? "#000" : "#999",
-            }}>
-              {i < badges ? "✓" : "—"}
-            </div>
+            }}>{i < badges ? "✓" : "—"}</div>
           ))}
         </div>
         <p className="text-xs text-gray-600 mb-4">Tu as <strong className="text-black">{badges}/{REQUIRED_BADGES}</strong> badges. Continue ton aventure !</p>
@@ -331,7 +426,6 @@ function TeamSelect({ team, onSelect, title, subtitle, excludeFainted }: {
           <h1 className="text-xl font-bold text-black mb-1">{title}</h1>
           {subtitle && <p className="text-xs text-gray-700">{subtitle}</p>}
         </div>
-
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
           {team.map((member, i) => {
             const disabled = excludeFainted && member.fainted;
@@ -351,9 +445,7 @@ function TeamSelect({ team, onSelect, title, subtitle, excludeFainted }: {
                     <img src={member.data.spriteAnimated} alt={member.pokemon.name} style={{ imageRendering: "pixelated", height: "70px" }} />
                   ) : member.data.sprite ? (
                     <img src={member.data.sprite} alt={member.pokemon.name} style={{ height: "70px" }} />
-                  ) : (
-                    <div className="text-xs text-gray-400">…</div>
-                  )}
+                  ) : <div className="text-xs text-gray-400">…</div>}
                 </div>
                 <div className="text-sm font-bold text-black">{member.pokemon.name.toUpperCase()}</div>
                 <div className="text-xs text-gray-700">Niv. {member.pokemon.level}</div>
@@ -363,18 +455,14 @@ function TeamSelect({ team, onSelect, title, subtitle, excludeFainted }: {
                     <div style={{
                       width: `${(member.currentHP / member.maxHP) * 100}%`,
                       height: "100%",
-                      background: member.fainted ? "#999" : (member.currentHP / member.maxHP) > 0.5 ? "#58c050" : (member.currentHP / member.maxHP) > 0.2 ? "#f8c840" : "#e03030",
+                      background: member.fainted ? "#999" : (member.currentHP / member.maxHP) > 0.5 ? "#22c55e" : (member.currentHP / member.maxHP) > 0.2 ? "#f59e0b" : "#ef4444",
                     }} />
                   </div>
                 </div>
-                <div className="text-[9px] text-gray-600 mt-1">
-                  {member.fainted ? "K.O." : `${member.currentHP}/${member.maxHP}`}
-                </div>
-                <div className="flex gap-1 mt-1">
+                <div className="text-[9px] text-black font-bold mt-1">{member.fainted ? "K.O." : `${member.currentHP}/${member.maxHP}`}</div>
+                <div className="flex gap-1 mt-1 flex-wrap">
                   {member.data.types.map((t) => (
-                    <span key={t} className="text-[8px] px-1 py-0.5 text-white font-bold" style={{ background: TYPE_COLORS[t] }}>
-                      {t}
-                    </span>
+                    <span key={t} className="text-[8px] px-1 py-0.5 text-white font-bold" style={{ background: TYPE_COLORS[t] }}>{t}</span>
                   ))}
                 </div>
               </motion.button>
@@ -388,6 +476,24 @@ function TeamSelect({ team, onSelect, title, subtitle, excludeFainted }: {
 
 /* ═══════════════════════════════════════════════ */
 
+function StatusBadge({ status }: { status: StatusState["status"] }) {
+  if (!status) return null;
+  const map: Record<string, { label: string; color: string }> = {
+    paralysis: { label: "PAR", color: "#eab308" },
+    burn: { label: "BRL", color: "#dc2626" },
+    poison: { label: "PSN", color: "#a855f7" },
+    freeze: { label: "GEL", color: "#22d3ee" },
+    sleep: { label: "SOM", color: "#94a3b8" },
+  };
+  const s = map[status];
+  if (!s) return null;
+  return (
+    <span className="text-[9px] font-bold px-1.5 py-0.5 border border-black" style={{ background: s.color, color: "#fff" }}>
+      {s.label}
+    </span>
+  );
+}
+
 function BattleScreen({ battle, team, activeIdx, menuMode, setMenuMode, onAttack, onCatch, ballAnim }: {
   battle: BattleState; team: TeamMember[]; activeIdx: number;
   menuMode: "main" | "moves"; setMenuMode: (m: "main" | "moves") => void;
@@ -397,25 +503,21 @@ function BattleScreen({ battle, team, activeIdx, menuMode, setMenuMode, onAttack
   const active = team[activeIdx];
   if (!active) return null;
 
-  const playerType = active.data.types[0] || "Normal";
-  const moves = TYPE_MOVES[playerType];
+  const moves = active.moves;
+  const primaryType = active.data.types[0] || "Normal";
   const raikouHpPercent = (battle.raikouHP / battle.raikouMaxHP) * 100;
   const playerHpPercent = (active.currentHP / active.maxHP) * 100;
   const captureRatePercent = (calculateCaptureRate(raikouHpPercent / 100) * 100).toFixed(1);
   const captureColor = raikouHpPercent >= 50 ? "#22c55e" : raikouHpPercent >= 20 ? "#f59e0b" : "#ef4444";
   const hpBarColor = (pct: number) => pct > 50 ? "#22c55e" : pct > 20 ? "#f59e0b" : "#ef4444";
-
-  // Hide Raikou when ball animation is going
   const raikouHidden = ballAnim === "throwing" || ballAnim === "shaking" || ballAnim === "success";
 
   return (
     <div className="h-dvh w-full flex flex-col" style={{ fontFamily: "'Courier New', monospace", background: "#0a0518" }}>
-      {/* Battle scene */}
       <div className="relative flex-1 overflow-hidden" style={{
         background: "linear-gradient(180deg, #1a0a2e 0%, #2d1b4e 35%, #4a2d6e 70%, #5a3878 100%)",
         minHeight: "55%",
       }}>
-        {/* Stars */}
         <div className="absolute inset-0 opacity-50">
           {Array.from({ length: 35 }).map((_, i) => (
             <div key={i} style={{
@@ -429,35 +531,32 @@ function BattleScreen({ battle, team, activeIdx, menuMode, setMenuMode, onAttack
           ))}
         </div>
 
-        {/* Distant mountains */}
         <svg className="absolute bottom-0 left-0 right-0 w-full" viewBox="0 0 320 100" preserveAspectRatio="none" style={{ height: "35%" }}>
           <path d="M 0 100 L 0 65 L 25 40 L 50 55 L 80 25 L 110 50 L 140 30 L 175 50 L 210 25 L 240 50 L 275 30 L 305 45 L 320 35 L 320 100 Z" fill="#1a0f30" opacity="0.7" />
           <path d="M 0 100 L 0 75 L 30 55 L 60 70 L 100 50 L 140 70 L 180 55 L 220 70 L 260 50 L 300 65 L 320 60 L 320 100 Z" fill="#0a0520" />
         </svg>
 
-        {/* Ground glow under Raikou */}
         <div className="absolute left-1/2 -translate-x-1/2" style={{
-          bottom: "20%",
-          width: "200px",
-          height: "20px",
+          bottom: "20%", width: "200px", height: "20px",
           background: "radial-gradient(ellipse, rgba(251, 191, 36, 0.3), transparent 70%)",
           filter: "blur(8px)",
         }} />
 
-        {/* === RAIKOU INFO BOX === */}
+        {/* RAIKOU INFO BOX — level HIDDEN */}
         <div className="absolute top-3 left-3 sm:top-4 sm:left-4 bg-[#f8f0e0] border-[3px] border-black p-2 px-3 z-20 max-w-[55%]" style={{ boxShadow: "4px 4px 0 #000" }}>
           <div className="flex items-baseline justify-between gap-2 mb-1">
-            <span className="text-[13px] sm:text-sm font-bold text-black truncate">RAIKOU</span>
-            <span className="text-[10px] text-gray-700 flex-shrink-0">♂ Niv.{RAIKOU_LEVEL}</span>
+            <div className="flex items-center gap-1.5">
+              <span className="text-[13px] sm:text-sm font-bold text-black truncate">RAIKOU</span>
+              <StatusBadge status={battle.raikouStatus.status} />
+            </div>
+            <span className="text-[10px] text-gray-700 flex-shrink-0">Niv. ?</span>
           </div>
           <div className="flex items-center gap-1.5">
             <span className="text-[9px] font-bold text-black">PV</span>
             <div className="flex-1 h-2 bg-black border border-black" style={{ padding: "1px", minWidth: "100px" }}>
               <div style={{
-                width: `${raikouHpPercent}%`,
-                height: "100%",
-                background: hpBarColor(raikouHpPercent),
-                transition: "width 0.5s",
+                width: `${raikouHpPercent}%`, height: "100%",
+                background: hpBarColor(raikouHpPercent), transition: "width 0.5s",
                 boxShadow: `0 0 4px ${hpBarColor(raikouHpPercent)}`,
               }} />
             </div>
@@ -467,91 +566,70 @@ function BattleScreen({ battle, team, activeIdx, menuMode, setMenuMode, onAttack
           </div>
         </div>
 
-        {/* === RAIKOU SPRITE === */}
+        {/* RAIKOU SPRITE */}
         <motion.div
-          className="absolute z-10"
-          style={{ top: "10%", right: "5%" }}
+          className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-10"
           animate={raikouHidden ? { scale: 0, opacity: 0 } : { scale: 1, opacity: 1 }}
           transition={{ duration: 0.3 }}
         >
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none" style={{
+            width: "240px", height: "240px", borderRadius: "50%",
+            background: "radial-gradient(circle, rgba(251, 191, 36, 0.25) 0%, rgba(168, 85, 247, 0.1) 50%, transparent 75%)",
+            filter: "blur(20px)",
+            animation: "auraPulse 2.5s ease-in-out infinite",
+          }} />
           <img
-            src="https://play.pokemonshowdown.com/sprites/ani/raikou.gif"
+            src={`${BASE_PATH}/sprites/raikou.gif`}
             alt="Raikou"
             style={{
-              imageRendering: "pixelated",
-              width: "120px",
+              imageRendering: "pixelated", width: "min(180px, 35vw)",
               filter: "drop-shadow(0 0 16px rgba(253, 224, 71, 0.6))",
+              position: "relative",
               animation: "raikouFloat 3s ease-in-out infinite",
             }}
             onError={(e) => { e.currentTarget.style.display = "none"; }}
           />
         </motion.div>
 
-        {/* === POKEBALL ANIMATION === */}
+        {/* POKEBALL ANIMATION */}
         {ballAnim !== "idle" && (
-          <div
-            className="absolute z-30 pointer-events-none"
-            style={{
-              top: "50%", left: "50%",
-              width: "48px", height: "48px",
-              transform: "translate(-50%, -50%)",
-              animation:
-                ballAnim === "throwing" ? "ballThrow 0.9s cubic-bezier(0.4, 0, 0.6, 1) forwards" :
-                ballAnim === "shaking" ? "ballShake 0.6s ease-in-out infinite" :
-                ballAnim === "success" ? "ballCaptured 1.2s ease-out forwards" :
-                ballAnim === "fail" ? "ballBreak 1.2s ease-out forwards" :
-                undefined,
-            }}
-          >
+          <div className="absolute z-30 pointer-events-none" style={{
+            top: "50%", left: "50%", width: "48px", height: "48px",
+            transform: "translate(-50%, -50%)",
+            animation:
+              ballAnim === "throwing" ? "ballThrow 0.9s cubic-bezier(0.4, 0, 0.6, 1) forwards" :
+              ballAnim === "shaking" ? "ballShake 0.6s ease-in-out infinite" :
+              ballAnim === "success" ? "ballCaptured 1.2s ease-out forwards" :
+              ballAnim === "fail" ? "ballBreak 1.2s ease-out forwards" : undefined,
+          }}>
             <PokeballSVG />
-            {ballAnim === "success" && (
-              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                {Array.from({ length: 8 }).map((_, i) => (
-                  <div key={i} style={{
-                    position: "absolute",
-                    width: "8px", height: "8px",
-                    background: "#fbbf24",
-                    borderRadius: "50%",
-                    boxShadow: "0 0 8px #fbbf24",
-                    animation: `starBurst 1s ${i * 0.05}s ease-out forwards`,
-                    transform: `rotate(${i * 45}deg) translateX(0)`,
-                  }} />
-                ))}
-              </div>
-            )}
           </div>
         )}
 
-        {/* === PLAYER POKEMON === */}
-        <motion.div
-          className="absolute z-10"
-          style={{ bottom: "12%", left: "8%" }}
-          animate={{ y: [0, -4, 0] }}
-          transition={{ duration: 2, repeat: Infinity }}
-        >
+        {/* PLAYER POKEMON */}
+        <motion.div className="absolute z-10" style={{ bottom: "12%", left: "8%" }} animate={{ y: [0, -4, 0] }} transition={{ duration: 2, repeat: Infinity }}>
           {active.data.spriteAnimated ? (
-            <img src={active.data.spriteAnimated} alt={active.pokemon.name}
-              style={{ imageRendering: "pixelated", width: "min(120px, 25vw)", transform: "scaleX(-1)", filter: "drop-shadow(0 4px 8px rgba(0,0,0,0.4))" }} />
+            <img src={active.data.spriteAnimated} alt={active.pokemon.name} style={{ imageRendering: "pixelated", width: "min(120px, 25vw)", transform: "scaleX(-1)", filter: "drop-shadow(0 4px 8px rgba(0,0,0,0.4))" }} />
           ) : active.data.sprite ? (
-            <img src={active.data.sprite} alt={active.pokemon.name}
-              style={{ width: "min(120px, 25vw)", transform: "scaleX(-1)" }} />
+            <img src={active.data.sprite} alt={active.pokemon.name} style={{ width: "min(120px, 25vw)", transform: "scaleX(-1)" }} />
           ) : null}
         </motion.div>
 
-        {/* === PLAYER INFO BOX === */}
+        {/* PLAYER INFO BOX */}
         <div className="absolute bottom-3 right-3 sm:bottom-4 sm:right-4 bg-[#f8f0e0] border-[3px] border-black p-2 px-3 z-20 max-w-[55%]" style={{ boxShadow: "4px 4px 0 #000" }}>
           <div className="flex items-baseline justify-between gap-2 mb-1">
-            <span className="text-[13px] sm:text-sm font-bold text-black truncate">{active.pokemon.name.toUpperCase()}</span>
+            <div className="flex items-center gap-1.5">
+              <span className="text-[13px] sm:text-sm font-bold text-black truncate">{active.pokemon.name.toUpperCase()}</span>
+              <StatusBadge status={active.status.status} />
+            </div>
             <span className="text-[10px] text-gray-700 flex-shrink-0">Niv.{active.pokemon.level}</span>
           </div>
           <div className="flex items-center gap-1.5">
             <span className="text-[9px] font-bold text-black">PV</span>
             <div className="flex-1 h-2 bg-black border border-black" style={{ padding: "1px", minWidth: "80px" }}>
               <div style={{
-                width: `${playerHpPercent}%`,
-                height: "100%",
-                background: hpBarColor(playerHpPercent),
-                transition: "width 0.5s",
+                width: `${playerHpPercent}%`, height: "100%",
+                background: hpBarColor(playerHpPercent), transition: "width 0.5s",
                 boxShadow: `0 0 4px ${hpBarColor(playerHpPercent)}`,
               }} />
             </div>
@@ -565,11 +643,9 @@ function BattleScreen({ battle, team, activeIdx, menuMode, setMenuMode, onAttack
             const used = i >= battle.pokeballsLeft;
             return (
               <div key={i} style={{
-                width: "16px", height: "16px",
-                borderRadius: "50%",
+                width: "16px", height: "16px", borderRadius: "50%",
                 background: used ? "#ccc" : "linear-gradient(180deg, #ef4444 50%, #fff 50%)",
-                border: "1.5px solid #000",
-                opacity: used ? 0.4 : 1,
+                border: "1.5px solid #000", opacity: used ? 0.4 : 1,
                 filter: used ? "grayscale(1)" : "drop-shadow(0 0 2px rgba(251, 191, 36, 0.4))",
               }} />
             );
@@ -577,9 +653,8 @@ function BattleScreen({ battle, team, activeIdx, menuMode, setMenuMode, onAttack
         </div>
       </div>
 
-      {/* === HUD === */}
+      {/* HUD */}
       <div className="bg-[#f8f0e0] border-t-4 border-black" style={{ minHeight: "200px", padding: "10px 12px 12px" }}>
-        {/* Dialog box */}
         <div className="bg-white border-[3px] border-black p-3 mb-2.5 relative" style={{ boxShadow: "4px 4px 0 #000", minHeight: "56px" }}>
           <div className="absolute top-1 left-1 right-1 bottom-1 border border-gray-300 pointer-events-none" />
           {battle.log.slice(-2).map((line, i) => (
@@ -587,7 +662,6 @@ function BattleScreen({ battle, team, activeIdx, menuMode, setMenuMode, onAttack
           ))}
         </div>
 
-        {/* Menu buttons */}
         {menuMode === "main" ? (
           <div className="grid grid-cols-2 gap-2">
             <button
@@ -597,7 +671,7 @@ function BattleScreen({ battle, team, activeIdx, menuMode, setMenuMode, onAttack
               style={{
                 boxShadow: "4px 4px 0 #000",
                 fontFamily: "'Courier New', monospace",
-                background: TYPE_COLORS[playerType],
+                background: TYPE_COLORS[primaryType],
                 color: "#000",
                 textShadow: "1px 1px 0 rgba(255,255,255,0.5)",
               }}
@@ -628,20 +702,17 @@ function BattleScreen({ battle, team, activeIdx, menuMode, setMenuMode, onAttack
                 style={{
                   boxShadow: "4px 4px 0 #000",
                   fontFamily: "'Courier New', monospace",
-                  background: TYPE_COLORS[playerType],
+                  background: TYPE_COLORS[m.type],
                   color: "#000",
                 }}
               >
-                <div className="text-[13px] font-bold" style={{ textShadow: "1px 1px 0 rgba(255,255,255,0.5)" }}>{m.name.toUpperCase()}</div>
-                <div className="text-[10px] text-black/70 font-bold">PUI: {m.power} · {playerType.toUpperCase()}</div>
+                <div className="text-[12px] sm:text-[13px] font-bold" style={{ textShadow: "1px 1px 0 rgba(255,255,255,0.5)" }}>{m.name.toUpperCase()}</div>
+                <div className="text-[10px] text-black/70 font-bold">
+                  {m.power === 0 ? "STATUT" : `PUI: ${m.power}`} · {m.type.toUpperCase()}
+                </div>
               </button>
             ))}
-            <button
-              onClick={() => setMenuMode("main")}
-              className="col-span-2 text-[11px] text-black font-bold underline mt-1"
-            >
-              ← Retour
-            </button>
+            <button onClick={() => setMenuMode("main")} className="col-span-2 text-[11px] text-black font-bold underline mt-1">← Retour</button>
           </div>
         )}
       </div>
@@ -656,21 +727,9 @@ function BattleScreen({ battle, team, activeIdx, menuMode, setMenuMode, onAttack
           50% { transform: translate(-50%, -50%) scale(1.15); opacity: 1; }
         }
         @keyframes ballThrow {
-          0% {
-            top: 90%;
-            left: 15%;
-            transform: translate(-50%, -50%) rotate(0deg) scale(0.6);
-          }
-          50% {
-            top: 20%;
-            left: 35%;
-            transform: translate(-50%, -50%) rotate(360deg) scale(1.1);
-          }
-          100% {
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%) rotate(720deg) scale(1);
-          }
+          0% { top: 90%; left: 15%; transform: translate(-50%, -50%) rotate(0deg) scale(0.6); }
+          50% { top: 20%; left: 35%; transform: translate(-50%, -50%) rotate(360deg) scale(1.1); }
+          100% { top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(720deg) scale(1); }
         }
         @keyframes ballShake {
           0%, 100% { transform: translate(-50%, -50%) rotate(0deg); }
@@ -688,16 +747,10 @@ function BattleScreen({ battle, team, activeIdx, menuMode, setMenuMode, onAttack
           60% { transform: translate(-50%, -50%) scale(0.5) rotate(-30deg); opacity: 0.6; }
           100% { transform: translate(-50%, -50%) scale(0) rotate(0deg); opacity: 0; }
         }
-        @keyframes starBurst {
-          0% { transform: rotate(var(--r, 0deg)) translateX(0) scale(1); opacity: 1; }
-          100% { transform: rotate(var(--r, 0deg)) translateX(80px) scale(0); opacity: 0; }
-        }
       `}</style>
     </div>
   );
 }
-
-/* ═══════════════════════════════════════════════ */
 
 function PokeballSVG() {
   return (
@@ -707,13 +760,10 @@ function PokeballSVG() {
       <line x1="2" y1="24" x2="46" y2="24" stroke="#000" strokeWidth="3"/>
       <circle cx="24" cy="24" r="6" fill="#fff" stroke="#000" strokeWidth="3"/>
       <circle cx="24" cy="24" r="2.5" fill="#ccc"/>
-      {/* Highlight */}
       <ellipse cx="16" cy="14" rx="5" ry="3" fill="#fff" opacity="0.5"/>
     </svg>
   );
 }
-
-/* ═══════════════════════════════════════════════ */
 
 function ResultScreen({ type, pseudo, onClose }: { type: "victory" | "defeat" | "fled"; pseudo: string; onClose: () => void }) {
   const messages = {
@@ -722,15 +772,9 @@ function ResultScreen({ type, pseudo, onClose }: { type: "victory" | "defeat" | 
     fled: { title: "RAIKOU S'ENFUIT", text: "Tu as mis K.O. RAIKOU. Il s'est enfui dans la nuit…", color: "#94a3b8" },
   };
   const m = messages[type];
-
   return (
     <div className="h-dvh w-full flex items-center justify-center bg-[#0a0518] p-6" style={{ fontFamily: "'Courier New', monospace" }}>
-      <motion.div
-        initial={{ scale: 0.8, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        className="bg-[#f8f0e0] border-4 border-black p-8 max-w-sm text-center"
-        style={{ boxShadow: "8px 8px 0 #000" }}
-      >
+      <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="bg-[#f8f0e0] border-4 border-black p-8 max-w-sm text-center" style={{ boxShadow: "8px 8px 0 #000" }}>
         <h1 className="text-2xl font-bold mb-4" style={{ color: m.color }}>{m.title}</h1>
         <p className="text-sm text-black mb-6">{m.text}</p>
         <button onClick={onClose} className="bg-black text-white px-6 py-3 text-sm font-bold hover:bg-gray-800">FERMER</button>
