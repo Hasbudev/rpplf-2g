@@ -579,7 +579,7 @@ function BattleScreen({ battle, team, activeIdx, menuMode, setMenuMode, onAttack
             animation: "auraPulse 2.5s ease-in-out infinite",
           }} />
           <img
-            src={`${BASE_PATH}/sprites/raikou.gif`}
+            src="https://play.pokemonshowdown.com/sprites/ani/raikou.gif"
             alt="Raikou"
             style={{
               imageRendering: "pixelated", width: "min(180px, 35vw)",
