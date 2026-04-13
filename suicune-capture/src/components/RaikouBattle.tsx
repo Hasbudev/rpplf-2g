@@ -55,7 +55,7 @@ export function RaikouBattle({ pseudo, onComplete }: { pseudo: string; onComplet
   });
   const [menuMode, setMenuMode] = useState<"main" | "moves">("main");
   const [ballAnim, setBallAnim] = useState<"idle" | "throwing" | "shaking" | "success" | "fail">("idle");
-  const [musicEnabled, setMusicEnabled] = useState(false);
+  const [musicEnabled, setMusicEnabled] = useState(true);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   // Music control
