@@ -180,3 +180,29 @@ export function useCapture() {
 
   return { attempt, busy };
 }
+
+/* ═══════════════════════════════════════════════
+   LIVE BATTLE TRACKING (for admin live viewer)
+   ═══════════════════════════════════════════════ */
+
+export interface LiveBattleUpdate {
+  pseudo: string;
+  pokemon: string;
+  currentPokemon?: string | null;
+  currentPokemonHP?: number;
+  currentPokemonMaxHP?: number;
+  raikouHP?: number;
+  raikouMaxHP?: number;
+  pokeballsLeft?: number;
+  lastAction?: string;
+  status?: "in_battle" | "victory" | "defeat" | "fled";
+}
+
+export async function updateLiveBattle(update: LiveBattleUpdate): Promise<void> {
+  try {
+    const fn = httpsCallable(functions, "updateLiveBattle");
+    await fn({ ...update, deviceId: getDeviceId() });
+  } catch (err) {
+    console.error("Live battle update error:", err);
+  }
+}

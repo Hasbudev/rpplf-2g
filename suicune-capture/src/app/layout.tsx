@@ -15,10 +15,10 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "RPPLF League – La Quête du Pokémon Volcan",
   description:
-    "Un Pokémon légendaire apparaît ! Tentez votre chance avec un taux de capture de 0.2%. Événement limité.",
+    "Un Pokémon légendaire apparaît ! Tentez votre chance. Événement limité.",
   openGraph: {
-    title: "RPPLF League – La Quête du Pokémon Volcan",
-    description: "Un Pokémon légendaire apparaît ! 0.2% de chance de capture. Êtes-vous prêt ?",
+    title: "RPPLF League – La quête du Pokémon Orage",
+    description: "Un Pokémon légendaire apparaît ! Êtes-vous prêt ?",
     type: "website",
   },
 };

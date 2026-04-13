@@ -11,6 +11,7 @@ import {
   canMoveWithParalysis, burnDamage, poisonDamage,
   type Move, type PokemonType, type StatusState,
 } from "../lib/battleSystem";
+import { updateLiveBattle } from "../hooks/useEvent";
 
 const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
 const RAIKOU_LEVEL = 50;
@@ -54,6 +55,39 @@ export function RaikouBattle({ pseudo, onComplete }: { pseudo: string; onComplet
   });
   const [menuMode, setMenuMode] = useState<"main" | "moves">("main");
   const [ballAnim, setBallAnim] = useState<"idle" | "throwing" | "shaking" | "success" | "fail">("idle");
+  const [musicEnabled, setMusicEnabled] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  // Music control
+  useEffect(() => {
+    if (phase === "battle" && musicEnabled && audioRef.current) {
+      audioRef.current.volume = 0.3;
+      audioRef.current.loop = true;
+      audioRef.current.play().catch(() => {});
+    }
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+    };
+  }, [phase, musicEnabled]);
+
+  // Helper to broadcast live state
+  const broadcastLive = useCallback((extra?: Partial<{ status: "in_battle" | "victory" | "defeat" | "fled"; lastAction: string }>) => {
+    const active = teamRef.current[activeIdx];
+    updateLiveBattle({
+      pseudo,
+      pokemon: "raikou",
+      currentPokemon: active?.pokemon.name || null,
+      currentPokemonHP: active?.currentHP,
+      currentPokemonMaxHP: active?.maxHP,
+      raikouHP: battle.raikouHP,
+      raikouMaxHP: battle.raikouMaxHP,
+      pokeballsLeft: battle.pokeballsLeft,
+      status: extra?.status || "in_battle",
+      lastAction: extra?.lastAction || "",
+    });
+  }, [pseudo, activeIdx, battle]);
 
   // Load player
   useEffect(() => {
@@ -98,7 +132,22 @@ export function RaikouBattle({ pseudo, onComplete }: { pseudo: string; onComplet
       busy: false,
     });
     setPhase("battle");
-  }, [team]);
+    // Initial broadcast
+    setTimeout(() => {
+      updateLiveBattle({
+        pseudo,
+        pokemon: "raikou",
+        currentPokemon: team[idx].pokemon.name,
+        currentPokemonHP: team[idx].currentHP,
+        currentPokemonMaxHP: team[idx].maxHP,
+        raikouHP: RAIKOU_MAX_HP,
+        raikouMaxHP: RAIKOU_MAX_HP,
+        pokeballsLeft: MAX_POKEBALLS,
+        status: "in_battle",
+        lastAction: "Combat commencé",
+      });
+    }, 100);
+  }, [team, pseudo]);
 
   const switchPokemon = useCallback((idx: number) => {
     setActiveIdx(idx);
@@ -132,9 +181,37 @@ export function RaikouBattle({ pseudo, onComplete }: { pseudo: string; onComplet
     return false;
   }, []);
 
-  // Raikou attacks
+  /* ═══════════════════════════════════════════════
+     SMART RAIKOU AI — picks best move based on opponent
+     ═══════════════════════════════════════════════ */
+  const pickRaikouMove = useCallback((opponent: TeamMember): Move => {
+    // Check if opponent is immune to electric (Ground type)
+    const electricEff = getEffectiveness("Électrik", opponent.data.types);
+
+    // If immune to electric, MUST use Ébullition (water move)
+    if (electricEff === 0) {
+      const scald = RAIKOU_MOVES.find((m) => m.name === "Ébullition");
+      if (scald) return scald;
+    }
+
+    // Otherwise pick a damaging move at random (avoid Cage-Éclair if opponent already paralyzed)
+    const damagingMoves = RAIKOU_MOVES.filter((m) => {
+      if (m.power === 0) {
+        // Status move: only use if opponent isn't already statused
+        return opponent.status.status === null && !opponent.data.types.includes("Électrik");
+      }
+      return true;
+    });
+
+    if (damagingMoves.length === 0) {
+      // Fallback: any move
+      return RAIKOU_MOVES[Math.floor(Math.random() * RAIKOU_MOVES.length)];
+    }
+
+    return damagingMoves[Math.floor(Math.random() * damagingMoves.length)];
+  }, []);
+
   const raikouAttack = useCallback(async (active: TeamMember) => {
-    // Raikou paralysis check
     if (battle.raikouStatus.status === "paralysis" && !canMoveWithParalysis()) {
       setBattle((b) => ({ ...b, log: ["RAIKOU est paralysé ! Il ne peut pas attaquer…"] }));
       await sleep(1200);
@@ -142,7 +219,7 @@ export function RaikouBattle({ pseudo, onComplete }: { pseudo: string; onComplet
       return;
     }
 
-    const raikouMove = RAIKOU_MOVES[Math.floor(Math.random() * RAIKOU_MOVES.length)];
+    const raikouMove = pickRaikouMove(active);
     const eff = getEffectiveness(raikouMove.type, active.data.types);
     const isStab = RAIKOU_TYPES.includes(raikouMove.type);
     const damage = calculateDamage(RAIKOU_LEVEL, raikouMove.power, eff, isStab);
@@ -150,7 +227,7 @@ export function RaikouBattle({ pseudo, onComplete }: { pseudo: string; onComplet
     setBattle((b) => ({ ...b, log: [`RAIKOU utilise ${raikouMove.name} !`] }));
     await sleep(900);
 
-    // Status-only move (like Cage-Éclair)
+    // Status-only move (Cage-Éclair)
     if (raikouMove.power === 0) {
       if (active.status.status !== null) {
         setBattle((b) => ({ ...b, log: [...b.log, "Mais ça échoue !"] }));
@@ -167,7 +244,6 @@ export function RaikouBattle({ pseudo, onComplete }: { pseudo: string; onComplet
       return;
     }
 
-    // Immunity check
     if (eff === 0) {
       setBattle((b) => ({ ...b, log: [...b.log, `Ça n'affecte pas ${active.pokemon.name.toUpperCase()} !`] }));
       await sleep(1100);
@@ -186,7 +262,6 @@ export function RaikouBattle({ pseudo, onComplete }: { pseudo: string; onComplet
 
     // Apply secondary effect
     if (raikouMove.effect && raikouMove.effectChance && Math.random() < raikouMove.effectChance && active.status.status === null) {
-      // Don't paralyze electric types, don't burn fire types
       const canApply =
         !(raikouMove.effect === "paralysis" && active.data.types.includes("Électrik")) &&
         !(raikouMove.effect === "burn" && active.data.types.includes("Feu"));
@@ -204,6 +279,7 @@ export function RaikouBattle({ pseudo, onComplete }: { pseudo: string; onComplet
       const aliveCount = teamRef.current.filter((m, i) => i !== activeIdx && !m.fainted).length;
       if (aliveCount === 0) {
         setBattle((b) => ({ ...b, log: [...b.log, "Toute votre équipe est K.O. !"], busy: false }));
+        updateLiveBattle({ pseudo, pokemon: "raikou", status: "defeat", lastAction: "Équipe K.O." });
         await sleep(2000);
         setPhase("defeat");
         onComplete(false);
@@ -215,16 +291,14 @@ export function RaikouBattle({ pseudo, onComplete }: { pseudo: string; onComplet
     }
 
     setBattle((b) => ({ ...b, busy: false, log: [...b.log, "Que voulez-vous faire ?"] }));
-  }, [battle.raikouStatus, activeIdx, onComplete]);
+  }, [battle.raikouStatus, activeIdx, onComplete, pseudo, pickRaikouMove]);
 
-  // Player attacks
   const playerAttack = useCallback(async (moveIndex: number) => {
     const active = teamRef.current[activeIdx];
     if (!active || battle.busy) return;
     setBattle((b) => ({ ...b, busy: true }));
     setMenuMode("main");
 
-    // Paralysis check
     if (active.status.status === "paralysis" && !canMoveWithParalysis()) {
       setBattle((b) => ({ ...b, log: [`${active.pokemon.name.toUpperCase()} est paralysé ! Il ne peut pas bouger…`] }));
       await sleep(1400);
@@ -253,13 +327,27 @@ export function RaikouBattle({ pseudo, onComplete }: { pseudo: string; onComplet
 
     const newRaikouHP = Math.max(0, battle.raikouHP - damage);
     setBattle((b) => ({ ...b, raikouHP: newRaikouHP, log: [...b.log, `${damage} dégâts !${effMsg}`] }));
+
+    // Broadcast to live viewer
+    updateLiveBattle({
+      pseudo,
+      pokemon: "raikou",
+      currentPokemon: active.pokemon.name,
+      currentPokemonHP: active.currentHP,
+      currentPokemonMaxHP: active.maxHP,
+      raikouHP: newRaikouHP,
+      raikouMaxHP: battle.raikouMaxHP,
+      pokeballsLeft: battle.pokeballsLeft,
+      status: "in_battle",
+      lastAction: `${active.pokemon.name} → ${move.name} (${damage} dmg)`,
+    });
+
     await sleep(1100);
 
-    // Apply secondary effect to Raikou
     if (move.power > 0 && move.effect && move.effectChance && Math.random() < move.effectChance && battle.raikouStatus.status === null) {
       const canApply =
         !(move.effect === "paralysis" && RAIKOU_TYPES.includes("Électrik")) &&
-        !(move.effect === "burn" && RAIKOU_TYPES.includes("Feu"as any));
+        !(move.effect === "burn" && (RAIKOU_TYPES as string[]).includes("Feu"));
       if (canApply) {
         setBattle((b) => ({ ...b, raikouStatus: { status: move.effect! }, log: [...b.log, `RAIKOU est ${move.effect === "burn" ? "brûlé" : move.effect === "paralysis" ? "paralysé" : move.effect} !`] }));
         await sleep(1200);
@@ -268,6 +356,7 @@ export function RaikouBattle({ pseudo, onComplete }: { pseudo: string; onComplet
 
     if (newRaikouHP <= 0) {
       setBattle((b) => ({ ...b, log: [...b.log, "RAIKOU est K.O. ! Il s'enfuit dans la nuit…"], busy: false }));
+      updateLiveBattle({ pseudo, pokemon: "raikou", status: "fled", lastAction: "Raikou K.O." });
       await sleep(2200);
       setPhase("fled");
       onComplete(false);
@@ -276,7 +365,6 @@ export function RaikouBattle({ pseudo, onComplete }: { pseudo: string; onComplet
 
     await raikouAttack(active);
 
-    // Status damage at end of turn
     const current = teamRef.current[activeIdx];
     if (current && !current.fainted && (current.status.status === "burn" || current.status.status === "poison")) {
       const ko = await applyStatusDamage(current, activeIdx);
@@ -286,6 +374,7 @@ export function RaikouBattle({ pseudo, onComplete }: { pseudo: string; onComplet
         const aliveCount = teamRef.current.filter((m, i) => i !== activeIdx && !m.fainted).length;
         if (aliveCount === 0) {
           setBattle((b) => ({ ...b, log: [...b.log, "Toute votre équipe est K.O. !"], busy: false }));
+          updateLiveBattle({ pseudo, pokemon: "raikou", status: "defeat", lastAction: "Équipe K.O." });
           await sleep(2000);
           setPhase("defeat");
           onComplete(false);
@@ -295,9 +384,8 @@ export function RaikouBattle({ pseudo, onComplete }: { pseudo: string; onComplet
         setPhase("switch_pokemon");
       }
     }
-  }, [activeIdx, battle, onComplete, raikouAttack, applyStatusDamage]);
+  }, [activeIdx, battle, onComplete, raikouAttack, applyStatusDamage, pseudo]);
 
-  // Throw pokeball
   const throwPokeball = useCallback(async () => {
     const active = teamRef.current[activeIdx];
     if (!active || battle.busy || battle.pokeballsLeft <= 0) return;
@@ -308,6 +396,20 @@ export function RaikouBattle({ pseudo, onComplete }: { pseudo: string; onComplet
     const success = Math.random() < captureRate;
 
     setBattle((b) => ({ ...b, pokeballsLeft: b.pokeballsLeft - 1, log: ["Vous lancez une POKÉBALL !"] }));
+
+    updateLiveBattle({
+      pseudo,
+      pokemon: "raikou",
+      currentPokemon: active.pokemon.name,
+      currentPokemonHP: active.currentHP,
+      currentPokemonMaxHP: active.maxHP,
+      raikouHP: battle.raikouHP,
+      raikouMaxHP: battle.raikouMaxHP,
+      pokeballsLeft: battle.pokeballsLeft - 1,
+      status: "in_battle",
+      lastAction: `Lance une Pokéball !`,
+    });
+
     setBallAnim("throwing");
     await sleep(900);
     setBallAnim("shaking");
@@ -317,6 +419,7 @@ export function RaikouBattle({ pseudo, onComplete }: { pseudo: string; onComplet
     if (success) {
       setBallAnim("success");
       setBattle((b) => ({ ...b, log: [...b.log, "Et... RAIKOU a été capturé !"] }));
+      updateLiveBattle({ pseudo, pokemon: "raikou", status: "victory", lastAction: "RAIKOU CAPTURÉ !" });
       await sleep(2400);
       setPhase("victory");
       onComplete(true);
@@ -330,6 +433,7 @@ export function RaikouBattle({ pseudo, onComplete }: { pseudo: string; onComplet
 
     if (battle.pokeballsLeft - 1 <= 0) {
       setBattle((b) => ({ ...b, log: [...b.log, "Plus de POKÉBALLS !"], busy: false }));
+      updateLiveBattle({ pseudo, pokemon: "raikou", status: "defeat", lastAction: "Plus de Pokéballs" });
       await sleep(2000);
       setPhase("defeat");
       onComplete(false);
@@ -337,29 +441,34 @@ export function RaikouBattle({ pseudo, onComplete }: { pseudo: string; onComplet
     }
 
     await raikouAttack(active);
-  }, [activeIdx, battle, onComplete, raikouAttack]);
+  }, [activeIdx, battle, onComplete, raikouAttack, pseudo]);
 
   /* ─── RENDER ─── */
   if (phase === "loading") return <LoadingScreen />;
   if (phase === "not_found") return <NotFoundScreen pseudo={pseudo} onClose={() => onComplete(false)} />;
   if (phase === "not_enough_badges" && player) return <NotEnoughBadgesScreen pseudo={pseudo} badges={player.badges} onClose={() => onComplete(false)} />;
-  if (phase === "team_select") return <TeamSelect team={team} onSelect={startBattle} title="Choisis ton premier Pokémon" subtitle={`Dresseur ${pseudo} · ${player?.badges}/${REQUIRED_BADGES} badges`} />;
+  if (phase === "team_select") return <TeamSelect team={team} onSelect={startBattle} title="Choisis ton premier Pokémon" subtitle={`Dresseur ${pseudo} · ${player?.badges}/${REQUIRED_BADGES} badges`} musicEnabled={musicEnabled} setMusicEnabled={setMusicEnabled} />;
   if (phase === "switch_pokemon") return <TeamSelect team={team} onSelect={switchPokemon} title="Choisis ton prochain Pokémon" subtitle="Pokémon K.O. — fais ton choix !" excludeFainted />;
   if (phase === "victory") return <ResultScreen type="victory" pseudo={pseudo} onClose={() => onComplete(true)} />;
   if (phase === "defeat") return <ResultScreen type="defeat" pseudo={pseudo} onClose={() => onComplete(false)} />;
   if (phase === "fled") return <ResultScreen type="fled" pseudo={pseudo} onClose={() => onComplete(false)} />;
 
   return (
-    <BattleScreen
-      battle={battle}
-      team={team}
-      activeIdx={activeIdx}
-      menuMode={menuMode}
-      setMenuMode={setMenuMode}
-      onAttack={playerAttack}
-      onCatch={throwPokeball}
-      ballAnim={ballAnim}
-    />
+    <>
+      <audio ref={audioRef} src={`${BASE_PATH}/audio/raikou-theme.mp3`} preload="auto" />
+      <BattleScreen
+        battle={battle}
+        team={team}
+        activeIdx={activeIdx}
+        menuMode={menuMode}
+        setMenuMode={setMenuMode}
+        onAttack={playerAttack}
+        onCatch={throwPokeball}
+        ballAnim={ballAnim}
+        musicEnabled={musicEnabled}
+        toggleMusic={() => setMusicEnabled((m) => !m)}
+      />
+    </>
   );
 }
 
@@ -415,16 +524,28 @@ function NotEnoughBadgesScreen({ pseudo, badges, onClose }: { pseudo: string; ba
 
 /* ═══════════════════════════════════════════════ */
 
-function TeamSelect({ team, onSelect, title, subtitle, excludeFainted }: {
+function TeamSelect({ team, onSelect, title, subtitle, excludeFainted, musicEnabled, setMusicEnabled }: {
   team: TeamMember[]; onSelect: (idx: number) => void;
   title: string; subtitle?: string; excludeFainted?: boolean;
+  musicEnabled?: boolean; setMusicEnabled?: (v: boolean) => void;
 }) {
   return (
     <div className="h-dvh w-full bg-[#0a0518] p-4 sm:p-8 overflow-auto" style={{ fontFamily: "'Courier New', monospace" }}>
       <div className="max-w-2xl mx-auto">
-        <div className="bg-[#f8f0e0] border-4 border-black p-4 mb-6" style={{ boxShadow: "6px 6px 0 #000" }}>
-          <h1 className="text-xl font-bold text-black mb-1">{title}</h1>
-          {subtitle && <p className="text-xs text-gray-700">{subtitle}</p>}
+        <div className="bg-[#f8f0e0] border-4 border-black p-4 mb-6 flex items-start justify-between gap-4" style={{ boxShadow: "6px 6px 0 #000" }}>
+          <div className="flex-1">
+            <h1 className="text-xl font-bold text-black mb-1">{title}</h1>
+            {subtitle && <p className="text-xs text-gray-700">{subtitle}</p>}
+          </div>
+          {setMusicEnabled && (
+            <button
+              onClick={() => setMusicEnabled(!musicEnabled)}
+              className="border-2 border-black bg-white px-2 py-1 text-xs font-bold flex-shrink-0"
+              style={{ boxShadow: "2px 2px 0 #000" }}
+            >
+              {musicEnabled ? "🔊 ON" : "🔇 OFF"}
+            </button>
+          )}
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
           {team.map((member, i) => {
@@ -494,11 +615,12 @@ function StatusBadge({ status }: { status: StatusState["status"] }) {
   );
 }
 
-function BattleScreen({ battle, team, activeIdx, menuMode, setMenuMode, onAttack, onCatch, ballAnim }: {
+function BattleScreen({ battle, team, activeIdx, menuMode, setMenuMode, onAttack, onCatch, ballAnim, musicEnabled, toggleMusic }: {
   battle: BattleState; team: TeamMember[]; activeIdx: number;
   menuMode: "main" | "moves"; setMenuMode: (m: "main" | "moves") => void;
   onAttack: (i: number) => void; onCatch: () => void;
   ballAnim: "idle" | "throwing" | "shaking" | "success" | "fail";
+  musicEnabled: boolean; toggleMusic: () => void;
 }) {
   const active = team[activeIdx];
   if (!active) return null;
@@ -542,7 +664,6 @@ function BattleScreen({ battle, team, activeIdx, menuMode, setMenuMode, onAttack
           filter: "blur(8px)",
         }} />
 
-        {/* RAIKOU INFO BOX — level HIDDEN */}
         <div className="absolute top-3 left-3 sm:top-4 sm:left-4 bg-[#f8f0e0] border-[3px] border-black p-2 px-3 z-20 max-w-[55%]" style={{ boxShadow: "4px 4px 0 #000" }}>
           <div className="flex items-baseline justify-between gap-2 mb-1">
             <div className="flex items-center gap-1.5">
@@ -566,7 +687,6 @@ function BattleScreen({ battle, team, activeIdx, menuMode, setMenuMode, onAttack
           </div>
         </div>
 
-        {/* RAIKOU SPRITE */}
         <motion.div
           className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-10"
           animate={raikouHidden ? { scale: 0, opacity: 0 } : { scale: 1, opacity: 1 }}
@@ -591,7 +711,6 @@ function BattleScreen({ battle, team, activeIdx, menuMode, setMenuMode, onAttack
           />
         </motion.div>
 
-        {/* POKEBALL ANIMATION */}
         {ballAnim !== "idle" && (
           <div className="absolute z-30 pointer-events-none" style={{
             top: "50%", left: "50%", width: "48px", height: "48px",
@@ -606,7 +725,6 @@ function BattleScreen({ battle, team, activeIdx, menuMode, setMenuMode, onAttack
           </div>
         )}
 
-        {/* PLAYER POKEMON */}
         <motion.div className="absolute z-10" style={{ bottom: "12%", left: "8%" }} animate={{ y: [0, -4, 0] }} transition={{ duration: 2, repeat: Infinity }}>
           {active.data.spriteAnimated ? (
             <img src={active.data.spriteAnimated} alt={active.pokemon.name} style={{ imageRendering: "pixelated", width: "min(120px, 25vw)", transform: "scaleX(-1)", filter: "drop-shadow(0 4px 8px rgba(0,0,0,0.4))" }} />
@@ -615,7 +733,6 @@ function BattleScreen({ battle, team, activeIdx, menuMode, setMenuMode, onAttack
           ) : null}
         </motion.div>
 
-        {/* PLAYER INFO BOX */}
         <div className="absolute bottom-3 right-3 sm:bottom-4 sm:right-4 bg-[#f8f0e0] border-[3px] border-black p-2 px-3 z-20 max-w-[55%]" style={{ boxShadow: "4px 4px 0 #000" }}>
           <div className="flex items-baseline justify-between gap-2 mb-1">
             <div className="flex items-center gap-1.5">
@@ -637,23 +754,31 @@ function BattleScreen({ battle, team, activeIdx, menuMode, setMenuMode, onAttack
           <div className="text-[9px] text-black font-bold mt-1 text-right">{active.currentHP}/{active.maxHP}</div>
         </div>
 
-        {/* Pokeball counter */}
-        <div className="absolute top-3 right-3 sm:top-4 sm:right-4 z-20 flex items-center gap-1.5 bg-[#f8f0e0] border-[3px] border-black px-2 py-1.5" style={{ boxShadow: "3px 3px 0 #000" }}>
-          {Array.from({ length: MAX_POKEBALLS }).map((_, i) => {
-            const used = i >= battle.pokeballsLeft;
-            return (
-              <div key={i} style={{
-                width: "16px", height: "16px", borderRadius: "50%",
-                background: used ? "#ccc" : "linear-gradient(180deg, #ef4444 50%, #fff 50%)",
-                border: "1.5px solid #000", opacity: used ? 0.4 : 1,
-                filter: used ? "grayscale(1)" : "drop-shadow(0 0 2px rgba(251, 191, 36, 0.4))",
-              }} />
-            );
-          })}
+        {/* Pokeball counter + music toggle */}
+        <div className="absolute top-3 right-3 sm:top-4 sm:right-4 z-20 flex items-center gap-2">
+          <button
+            onClick={toggleMusic}
+            className="bg-[#f8f0e0] border-[3px] border-black px-2 py-1.5 text-[10px] font-bold text-black"
+            style={{ boxShadow: "3px 3px 0 #000", fontFamily: "'Courier New', monospace" }}
+          >
+            {musicEnabled ? "🔊" : "🔇"}
+          </button>
+          <div className="flex items-center gap-1.5 bg-[#f8f0e0] border-[3px] border-black px-2 py-1.5" style={{ boxShadow: "3px 3px 0 #000" }}>
+            {Array.from({ length: MAX_POKEBALLS }).map((_, i) => {
+              const used = i >= battle.pokeballsLeft;
+              return (
+                <div key={i} style={{
+                  width: "16px", height: "16px", borderRadius: "50%",
+                  background: used ? "#ccc" : "linear-gradient(180deg, #ef4444 50%, #fff 50%)",
+                  border: "1.5px solid #000", opacity: used ? 0.4 : 1,
+                  filter: used ? "grayscale(1)" : "drop-shadow(0 0 2px rgba(251, 191, 36, 0.4))",
+                }} />
+              );
+            })}
+          </div>
         </div>
       </div>
 
-      {/* HUD */}
       <div className="bg-[#f8f0e0] border-t-4 border-black" style={{ minHeight: "200px", padding: "10px 12px 12px" }}>
         <div className="bg-white border-[3px] border-black p-3 mb-2.5 relative" style={{ boxShadow: "4px 4px 0 #000", minHeight: "56px" }}>
           <div className="absolute top-1 left-1 right-1 bottom-1 border border-gray-300 pointer-events-none" />
