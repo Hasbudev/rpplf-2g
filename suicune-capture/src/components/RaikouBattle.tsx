@@ -14,8 +14,8 @@ import {
 import { updateLiveBattle } from "../hooks/useEvent";
 
 const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
-const RAIKOU_LEVEL = 50;
-const RAIKOU_MAX_HP = 160;
+const RAIKOU_LEVEL = 70;
+const RAIKOU_MAX_HP = 210;
 const RAIKOU_TYPES: PokemonType[] = ["Électrik"];
 const MAX_POKEBALLS = 3;
 
@@ -58,18 +58,19 @@ export function RaikouBattle({ pseudo, onComplete }: { pseudo: string; onComplet
   const [musicEnabled, setMusicEnabled] = useState(true);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  // Music control
+  // Music control — keep playing across battle/switch_pokemon, only stop on end states
   useEffect(() => {
-    if (phase === "battle" && musicEnabled && audioRef.current) {
-      audioRef.current.volume = 0.3;
-      audioRef.current.loop = true;
-      audioRef.current.play().catch(() => {});
+    const audio = audioRef.current;
+    if (!audio) return;
+    const shouldPlay =
+      (phase === "battle" || phase === "switch_pokemon") && musicEnabled;
+    if (shouldPlay) {
+      audio.volume = 0.3;
+      audio.loop = true;
+      audio.play().catch(() => {});
+    } else {
+      audio.pause();
     }
-    return () => {
-      if (audioRef.current) {
-        audioRef.current.pause();
-      }
-    };
   }, [phase, musicEnabled]);
 
   // Helper to broadcast live state
@@ -211,12 +212,15 @@ export function RaikouBattle({ pseudo, onComplete }: { pseudo: string; onComplet
     return damagingMoves[Math.floor(Math.random() * damagingMoves.length)];
   }, []);
 
-  const raikouAttack = useCallback(async (active: TeamMember) => {
+  // Returns true if the player pokemon was KO'd (so the caller stops chaining)
+  const raikouAttack = useCallback(async (active: TeamMember, chainNext: boolean = false): Promise<boolean> => {
     if (battle.raikouStatus.status === "paralysis" && !canMoveWithParalysis()) {
       setBattle((b) => ({ ...b, log: ["RAIKOU est paralysé ! Il ne peut pas attaquer…"] }));
       await sleep(1200);
-      setBattle((b) => ({ ...b, busy: false, log: [...b.log, "Que voulez-vous faire ?"] }));
-      return;
+      if (!chainNext) {
+        setBattle((b) => ({ ...b, busy: false, log: [...b.log, "Que voulez-vous faire ?"] }));
+      }
+      return false;
     }
 
     const raikouMove = pickRaikouMove(active);
@@ -240,15 +244,19 @@ export function RaikouBattle({ pseudo, onComplete }: { pseudo: string; onComplet
         setBattle((b) => ({ ...b, log: [...b.log, `${active.pokemon.name.toUpperCase()} est paralysé !`] }));
         await sleep(1200);
       }
-      setBattle((b) => ({ ...b, busy: false, log: [...b.log, "Que voulez-vous faire ?"] }));
-      return;
+      if (!chainNext) {
+        setBattle((b) => ({ ...b, busy: false, log: [...b.log, "Que voulez-vous faire ?"] }));
+      }
+      return false;
     }
 
     if (eff === 0) {
       setBattle((b) => ({ ...b, log: [...b.log, `Ça n'affecte pas ${active.pokemon.name.toUpperCase()} !`] }));
       await sleep(1100);
-      setBattle((b) => ({ ...b, busy: false, log: [...b.log, "Que voulez-vous faire ?"] }));
-      return;
+      if (!chainNext) {
+        setBattle((b) => ({ ...b, busy: false, log: [...b.log, "Que voulez-vous faire ?"] }));
+      }
+      return false;
     }
 
     let effMsg = "";
@@ -282,16 +290,18 @@ export function RaikouBattle({ pseudo, onComplete }: { pseudo: string; onComplet
         updateLiveBattle({ pseudo, pokemon: "raikou", status: "defeat", lastAction: "Équipe K.O." });
         await sleep(2000);
         setPhase("defeat");
-        onComplete(false);
-        return;
+        return true;
       }
       setBattle((b) => ({ ...b, busy: false }));
       setPhase("switch_pokemon");
-      return;
+      return true;
     }
 
-    setBattle((b) => ({ ...b, busy: false, log: [...b.log, "Que voulez-vous faire ?"] }));
-  }, [battle.raikouStatus, activeIdx, onComplete, pseudo, pickRaikouMove]);
+    if (!chainNext) {
+      setBattle((b) => ({ ...b, busy: false, log: [...b.log, "Que voulez-vous faire ?"] }));
+    }
+    return false;
+  }, [battle.raikouStatus, activeIdx, pseudo, pickRaikouMove]);
 
   const playerAttack = useCallback(async (moveIndex: number) => {
     const active = teamRef.current[activeIdx];
@@ -299,25 +309,34 @@ export function RaikouBattle({ pseudo, onComplete }: { pseudo: string; onComplet
     setBattle((b) => ({ ...b, busy: true }));
     setMenuMode("main");
 
-    if (active.status.status === "paralysis" && !canMoveWithParalysis()) {
-      setBattle((b) => ({ ...b, log: [`${active.pokemon.name.toUpperCase()} est paralysé ! Il ne peut pas bouger…`] }));
+    // ─── RAIKOU ATTACKS FIRST (always priority over player moves) ───
+    const playerKO = await raikouAttack(active, true);
+    if (playerKO) return; // raikouAttack handled phase change & busy
+
+    // Re-fetch active after raikou's hit
+    const afterRaikou = teamRef.current[activeIdx];
+    if (!afterRaikou || afterRaikou.fainted || afterRaikou.currentHP <= 0) return;
+
+    // ─── PLAYER ATTACKS SECOND ───
+    if (afterRaikou.status.status === "paralysis" && !canMoveWithParalysis()) {
+      setBattle((b) => ({ ...b, log: [...b.log, `${afterRaikou.pokemon.name.toUpperCase()} est paralysé ! Il ne peut pas bouger…`] }));
       await sleep(1400);
-      await raikouAttack(active);
+      setBattle((b) => ({ ...b, busy: false, log: [...b.log, "Que voulez-vous faire ?"] }));
       return;
     }
 
-    const move = active.moves[moveIndex];
-    const isStab = active.data.types.includes(move.type);
+    const move = afterRaikou.moves[moveIndex];
+    const isStab = afterRaikou.data.types.includes(move.type);
     const eff = getEffectiveness(move.type, RAIKOU_TYPES);
-    const damage = calculateDamage(active.pokemon.level, move.power, eff, isStab);
+    const damage = calculateDamage(afterRaikou.pokemon.level, move.power, eff, isStab);
 
-    setBattle((b) => ({ ...b, log: [`${active.pokemon.name.toUpperCase()} utilise ${move.name} !`] }));
+    setBattle((b) => ({ ...b, log: [...b.log, `${afterRaikou.pokemon.name.toUpperCase()} utilise ${move.name} !`] }));
     await sleep(900);
 
     if (eff === 0) {
       setBattle((b) => ({ ...b, log: [...b.log, "Ça n'affecte pas RAIKOU !"] }));
       await sleep(1100);
-      await raikouAttack(active);
+      setBattle((b) => ({ ...b, busy: false, log: [...b.log, "Que voulez-vous faire ?"] }));
       return;
     }
 
@@ -328,18 +347,17 @@ export function RaikouBattle({ pseudo, onComplete }: { pseudo: string; onComplet
     const newRaikouHP = Math.max(0, battle.raikouHP - damage);
     setBattle((b) => ({ ...b, raikouHP: newRaikouHP, log: [...b.log, `${damage} dégâts !${effMsg}`] }));
 
-    // Broadcast to live viewer
     updateLiveBattle({
       pseudo,
       pokemon: "raikou",
-      currentPokemon: active.pokemon.name,
-      currentPokemonHP: active.currentHP,
-      currentPokemonMaxHP: active.maxHP,
+      currentPokemon: afterRaikou.pokemon.name,
+      currentPokemonHP: afterRaikou.currentHP,
+      currentPokemonMaxHP: afterRaikou.maxHP,
       raikouHP: newRaikouHP,
       raikouMaxHP: battle.raikouMaxHP,
       pokeballsLeft: battle.pokeballsLeft,
       status: "in_battle",
-      lastAction: `${active.pokemon.name} → ${move.name} (${damage} dmg)`,
+      lastAction: `${afterRaikou.pokemon.name} → ${move.name} (${damage} dmg)`,
     });
 
     await sleep(1100);
@@ -359,12 +377,10 @@ export function RaikouBattle({ pseudo, onComplete }: { pseudo: string; onComplet
       updateLiveBattle({ pseudo, pokemon: "raikou", status: "fled", lastAction: "Raikou K.O." });
       await sleep(2200);
       setPhase("fled");
-      onComplete(false);
       return;
     }
 
-    await raikouAttack(active);
-
+    // End-of-turn status damage on player
     const current = teamRef.current[activeIdx];
     if (current && !current.fainted && (current.status.status === "burn" || current.status.status === "poison")) {
       const ko = await applyStatusDamage(current, activeIdx);
@@ -377,14 +393,16 @@ export function RaikouBattle({ pseudo, onComplete }: { pseudo: string; onComplet
           updateLiveBattle({ pseudo, pokemon: "raikou", status: "defeat", lastAction: "Équipe K.O." });
           await sleep(2000);
           setPhase("defeat");
-          onComplete(false);
           return;
         }
         setBattle((b) => ({ ...b, busy: false }));
         setPhase("switch_pokemon");
+        return;
       }
     }
-  }, [activeIdx, battle, onComplete, raikouAttack, applyStatusDamage, pseudo]);
+
+    setBattle((b) => ({ ...b, busy: false, log: [...b.log, "Que voulez-vous faire ?"] }));
+  }, [activeIdx, battle, raikouAttack, applyStatusDamage, pseudo]);
 
   const throwPokeball = useCallback(async () => {
     const active = teamRef.current[activeIdx];
@@ -422,7 +440,6 @@ export function RaikouBattle({ pseudo, onComplete }: { pseudo: string; onComplet
       updateLiveBattle({ pseudo, pokemon: "raikou", status: "victory", lastAction: "RAIKOU CAPTURÉ !" });
       await sleep(2400);
       setPhase("victory");
-      onComplete(true);
       return;
     }
 
@@ -436,26 +453,31 @@ export function RaikouBattle({ pseudo, onComplete }: { pseudo: string; onComplet
       updateLiveBattle({ pseudo, pokemon: "raikou", status: "defeat", lastAction: "Plus de Pokéballs" });
       await sleep(2000);
       setPhase("defeat");
-      onComplete(false);
       return;
     }
 
-    await raikouAttack(active);
-  }, [activeIdx, battle, onComplete, raikouAttack, pseudo]);
+    await raikouAttack(active, false);
+  }, [activeIdx, battle, raikouAttack, pseudo]);
 
   /* ─── RENDER ─── */
-  if (phase === "loading") return <LoadingScreen />;
-  if (phase === "not_found") return <NotFoundScreen pseudo={pseudo} onClose={() => onComplete(false)} />;
-  if (phase === "not_enough_badges" && player) return <NotEnoughBadgesScreen pseudo={pseudo} badges={player.badges} onClose={() => onComplete(false)} />;
-  if (phase === "team_select") return <TeamSelect team={team} onSelect={startBattle} title="Choisis ton premier Pokémon" subtitle={`Dresseur ${pseudo} · ${player?.badges}/${REQUIRED_BADGES} badges`} musicEnabled={musicEnabled} setMusicEnabled={setMusicEnabled} />;
-  if (phase === "switch_pokemon") return <TeamSelect team={team} onSelect={switchPokemon} title="Choisis ton prochain Pokémon" subtitle="Pokémon K.O. — fais ton choix !" excludeFainted />;
-  if (phase === "victory") return <ResultScreen type="victory" pseudo={pseudo} onClose={() => onComplete(true)} />;
-  if (phase === "defeat") return <ResultScreen type="defeat" pseudo={pseudo} onClose={() => onComplete(false)} />;
-  if (phase === "fled") return <ResultScreen type="fled" pseudo={pseudo} onClose={() => onComplete(false)} />;
+  // Audio element is rendered in EVERY phase so the music persists across
+  // team_select → battle → switch_pokemon transitions without restarting.
+  const audioEl = (
+    <audio ref={audioRef} src={`${BASE_PATH}/audio/raikou-theme.mp3`} preload="auto" />
+  );
+
+  if (phase === "loading") return <>{audioEl}<LoadingScreen /></>;
+  if (phase === "not_found") return <>{audioEl}<NotFoundScreen pseudo={pseudo} onClose={() => onComplete(false)} /></>;
+  if (phase === "not_enough_badges" && player) return <>{audioEl}<NotEnoughBadgesScreen pseudo={pseudo} badges={player.badges} onClose={() => onComplete(false)} /></>;
+  if (phase === "team_select") return <>{audioEl}<TeamSelect team={team} onSelect={startBattle} title="Choisis ton premier Pokémon" subtitle={`Dresseur ${pseudo} · ${player?.badges}/${REQUIRED_BADGES} badges`} musicEnabled={musicEnabled} setMusicEnabled={setMusicEnabled} /></>;
+  if (phase === "switch_pokemon") return <>{audioEl}<TeamSelect team={team} onSelect={switchPokemon} title="Choisis ton prochain Pokémon" subtitle="Pokémon K.O. — fais ton choix !" excludeFainted /></>;
+  if (phase === "victory") return <>{audioEl}<ResultScreen type="victory" pseudo={pseudo} onClose={() => onComplete(true)} /></>;
+  if (phase === "defeat") return <>{audioEl}<ResultScreen type="defeat" pseudo={pseudo} onClose={() => onComplete(false)} /></>;
+  if (phase === "fled") return <>{audioEl}<ResultScreen type="fled" pseudo={pseudo} onClose={() => onComplete(false)} /></>;
 
   return (
     <>
-      <audio ref={audioRef} src={`${BASE_PATH}/audio/raikou-theme.mp3`} preload="auto" />
+      {audioEl}
       <BattleScreen
         battle={battle}
         team={team}
@@ -897,6 +919,14 @@ function ResultScreen({ type, pseudo, onClose }: { type: "victory" | "defeat" | 
     fled: { title: "RAIKOU S'ENFUIT", text: "Tu as mis K.O. RAIKOU. Il s'est enfui dans la nuit…", color: "#94a3b8" },
   };
   const m = messages[type];
+
+  // Auto-close after 6 seconds so the player always sees the result clearly
+  // but isn't blocked if they don't click.
+  useEffect(() => {
+    const id = setTimeout(onClose, 6000);
+    return () => clearTimeout(id);
+  }, [onClose]);
+
   return (
     <div className="h-dvh w-full flex items-center justify-center bg-[#0a0518] p-6" style={{ fontFamily: "'Courier New', monospace" }}>
       <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="bg-[#f8f0e0] border-4 border-black p-8 max-w-sm text-center" style={{ boxShadow: "8px 8px 0 #000" }}>
