@@ -1,6 +1,6 @@
 // Player roster — fetches Google Sheet CSV and gets player teams + badges
 
-const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQyY63VHlAW2y-UBy5MkUOB3VI2RgX-bJicJgho8aKZBsua78n5xs8AstMvrroaPod3oKpdFAkOgpHw/pub?gid=1351092451&single=true&output=csv";
+const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQCYSdrRpgmcemjrj7laRKSLPVqIdaOmMmWXAsUN7cm2zuecQ8BKQhWpf78cuni7MENJXa-5i6-5JES/pub?gid=1351092451&single=true&output=csv";
 
 // Badge column indices (A=0, B=1...)
 // AM=38, AQ=42, AU=46, AY=50
