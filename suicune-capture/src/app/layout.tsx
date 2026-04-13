@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "RPPLF League – La Quête du Pokémon Volcan",
+  title: "RPPLF League – La Quête du Pokémon Orage",
   description:
     "Un Pokémon légendaire apparaît ! Tentez votre chance. Événement limité.",
   openGraph: {
