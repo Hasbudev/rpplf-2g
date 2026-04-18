@@ -21,12 +21,6 @@ export const TYPE_COLORS: Record<PokemonType, string> = {
   Acier: "#B8B8D0", Fée: "#EE99AC",
 };
 
-/* ═══════════════════════════════════════════════
-   FULL TYPE EFFECTIVENESS CHART
-   Gen 6+ (includes Fairy). Values: 0 = immune, 0.5 = not very effective,
-   1 = normal, 2 = super effective
-   ═══════════════════════════════════════════════ */
-
 const TYPE_CHART: Record<PokemonType, Partial<Record<PokemonType, number>>> = {
   Normal:   { Roche: 0.5, Acier: 0.5, Spectre: 0 },
   Feu:      { Feu: 0.5, Eau: 0.5, Plante: 2, Glace: 2, Insecte: 2, Roche: 0.5, Dragon: 0.5, Acier: 2 },
@@ -48,33 +42,23 @@ const TYPE_CHART: Record<PokemonType, Partial<Record<PokemonType, number>>> = {
   Fée:      { Feu: 0.5, Combat: 2, Poison: 0.5, Dragon: 2, Ténèbres: 2, Acier: 0.5 },
 };
 
-// Effectiveness multiplier of an attack type against a defender that may have 1 or 2 types
 export function getEffectiveness(attackType: PokemonType, defenderTypes: PokemonType[]): number {
   let mult = 1;
   for (const defType of defenderTypes) {
     const chart = TYPE_CHART[attackType];
-    if (chart && chart[defType] !== undefined) {
-      mult *= chart[defType]!;
-    }
+    if (chart && chart[defType] !== undefined) mult *= chart[defType]!;
   }
   return mult;
 }
-
-/* ═══════════════════════════════════════════════
-   MOVE DEFINITIONS
-   Each move has: name, power (0 for status), optional effect
-   Status effects: "paralysis", "burn", "freeze", "poison", "sleep"
-   ═══════════════════════════════════════════════ */
 
 export interface Move {
   name: string;
   power: number;
   type: PokemonType;
   effect?: "paralysis" | "burn" | "freeze" | "poison" | "sleep";
-  effectChance?: number; // 0-1
+  effectChance?: number;
 }
 
-// All moves organized by type — using REAL French Pokemon attack names
 export const TYPE_MOVES: Record<PokemonType, Move[]> = {
   Feu: [
     { name: "Flammèche", power: 40, type: "Feu", effect: "burn", effectChance: 0.1 },
@@ -186,12 +170,6 @@ export const TYPE_MOVES: Record<PokemonType, Move[]> = {
   ],
 };
 
-/* ═══════════════════════════════════════════════
-   RAIKOU MOVESET — Lv.50 stats
-   Cage-Éclair is now STATUS (paralysis, no damage)
-   Ebullition added to hit Ground types (resists Electric)
-   ═══════════════════════════════════════════════ */
-
 export const RAIKOU_MOVES: Move[] = [
   { name: "Tonnerre", power: 95, type: "Électrik", effect: "paralysis", effectChance: 0.3 },
   { name: "Crocs Éclair", power: 65, type: "Électrik", effect: "paralysis", effectChance: 0.2 },
@@ -199,38 +177,18 @@ export const RAIKOU_MOVES: Move[] = [
   { name: "Ébullition", power: 80, type: "Eau", effect: "burn", effectChance: 0.3 },
 ];
 
-/* ═══════════════════════════════════════════════
-   MOVE PICKER — for dual-type pokemon, give 2 moves per type
-   For single-type pokemon, give 4 moves of that type
-   ═══════════════════════════════════════════════ */
-
 export function pickMovesForPokemon(types: PokemonType[]): Move[] {
   if (types.length === 0) return TYPE_MOVES.Normal.slice(0, 4);
-
-  if (types.length === 1) {
-    return TYPE_MOVES[types[0]].slice(0, 4);
-  }
-
-  // Dual type: 2 moves of first type, 2 of second
-  const t1 = TYPE_MOVES[types[0]];
-  const t2 = TYPE_MOVES[types[1]];
-  // Pick the 2 best (highest power) of each
-  const sorted1 = [...t1].sort((a, b) => b.power - a.power).slice(0, 2);
-  const sorted2 = [...t2].sort((a, b) => b.power - a.power).slice(0, 2);
+  if (types.length === 1) return TYPE_MOVES[types[0]].slice(0, 4);
+  const sorted1 = [...TYPE_MOVES[types[0]]].sort((a, b) => b.power - a.power).slice(0, 2);
+  const sorted2 = [...TYPE_MOVES[types[1]]].sort((a, b) => b.power - a.power).slice(0, 2);
   return [...sorted1, ...sorted2];
 }
 
-/* ═══════════════════════════════════════════════
-   DAMAGE & HP FORMULAS
-   ═══════════════════════════════════════════════ */
-
 export function calculateDamage(
-  attackerLevel: number,
-  movePower: number,
-  effectiveness: number = 1,
-  isStab: boolean = false
+  attackerLevel: number, movePower: number, effectiveness: number = 1, isStab: boolean = false
 ): number {
-  if (movePower === 0) return 0; // Status moves
+  if (movePower === 0) return 0;
   const base = ((2 * attackerLevel / 5 + 2) * movePower * 1) / 50 + 2;
   const stab = isStab ? 1.5 : 1;
   const random = 0.85 + Math.random() * 0.15;
@@ -241,7 +199,6 @@ export function calculateMaxHP(level: number, baseHP: number = 70): number {
   return Math.floor((2 * baseHP * level) / 100 + level + 10);
 }
 
-// Softer capture rates — 0.2% green, 0.5% orange, 1% red, 2% critical
 export function calculateCaptureRate(hpPercent: number): number {
   if (hpPercent >= 0.50) return 0.002;
   if (hpPercent >= 0.20) return 0.005;
@@ -249,26 +206,165 @@ export function calculateCaptureRate(hpPercent: number): number {
   return 0.02;
 }
 
-/* ═══════════════════════════════════════════════
-   STATUS EFFECTS
-   ═══════════════════════════════════════════════ */
-
 export interface StatusState {
   status: "paralysis" | "burn" | "freeze" | "poison" | "sleep" | null;
-  turnsRemaining?: number; // for sleep/freeze
+  turnsRemaining?: number;
 }
 
-// Paralysis: 25% chance to skip turn
-export function canMoveWithParalysis(): boolean {
-  return Math.random() > 0.25;
+export function canMoveWithParalysis(): boolean { return Math.random() > 0.25; }
+export function burnDamage(maxHP: number): number { return Math.max(1, Math.floor(maxHP / 16)); }
+export function poisonDamage(maxHP: number): number { return Math.max(1, Math.floor(maxHP / 8)); }
+
+/* ═══════════════════════════════════════════════
+   LEGENDARY BEASTS — 3v3 sequential config
+   Raikou Lv.55, Entei Lv.55, Suicune Lv.55
+   ═══════════════════════════════════════════════ */
+
+export interface BeastConfig {
+  name: string;
+  displayName: string;
+  level: number;
+  maxHP: number;
+  types: PokemonType[];
+  moves: Move[];
+  sprite: string;
+  color: string;
+  glowColor: string;
 }
 
-// Burn: deals 1/16 max HP per turn
-export function burnDamage(maxHP: number): number {
-  return Math.max(1, Math.floor(maxHP / 16));
+export const BEAST_CONFIGS: BeastConfig[] = [
+  {
+    name: "raikou", displayName: "RAIKOU", level: 55, maxHP: 190,
+    types: ["Électrik"],
+    moves: [
+      { name: "Tonnerre", power: 90, type: "Électrik", effect: "paralysis", effectChance: 0.3 },
+      { name: "Crocs Éclair", power: 65, type: "Électrik", effect: "paralysis", effectChance: 0.2 },
+      { name: "Cage-Éclair", power: 0, type: "Électrik", effect: "paralysis", effectChance: 1.0 },
+      { name: "Ébullition", power: 80, type: "Eau", effect: "burn", effectChance: 0.3 },
+    ],
+    sprite: "https://play.pokemonshowdown.com/sprites/ani/raikou.gif",
+    color: "#fbbf24", glowColor: "rgba(251, 191, 36, 0.5)",
+  },
+  {
+    name: "entei", displayName: "ENTEI", level: 55, maxHP: 200,
+    types: ["Feu"],
+    moves: [
+      { name: "Feu Sacré", power: 95, type: "Feu", effect: "burn", effectChance: 0.5 },
+      { name: "Lance-Flammes", power: 90, type: "Feu", effect: "burn", effectChance: 0.1 },
+      { name: "Piétisol", power: 60, type: "Sol" },
+      { name: "Crocs Feu", power: 65, type: "Feu", effect: "burn", effectChance: 0.1 },
+    ],
+    sprite: "https://play.pokemonshowdown.com/sprites/ani/entei.gif",
+    color: "#ef4444", glowColor: "rgba(239, 68, 68, 0.5)",
+  },
+  {
+    name: "suicune", displayName: "SUICUNE", level: 55, maxHP: 210,
+    types: ["Eau"],
+    moves: [
+      { name: "Hydrocanon", power: 110, type: "Eau" },
+      { name: "Laser Glace", power: 90, type: "Glace", effect: "freeze", effectChance: 0.1 },
+      { name: "Vent Arrière", power: 0, type: "Vol" }, // status — handled in AI as +speed (cosmetic)
+      { name: "Surf", power: 90, type: "Eau" },
+    ],
+    sprite: "https://play.pokemonshowdown.com/sprites/ani/suicune.gif",
+    color: "#38bdf8", glowColor: "rgba(56, 189, 248, 0.5)",
+  },
+];
+
+/* ═══════════════════════════════════════════════
+   HO-OH BOSS — Lv.150, Feu/Vol, 3 phases
+   ═══════════════════════════════════════════════ */
+
+export const HOOH_LEVEL = 150;
+export const HOOH_MAX_HP = 550;
+export const HOOH_TYPES: PokemonType[] = ["Feu", "Vol"];
+
+export type BossPhase = "sacred" | "rage" | "divine";
+
+export function getBossPhase(hpPercent: number): BossPhase {
+  if (hpPercent > 0.50) return "sacred";
+  if (hpPercent > 0.20) return "rage";
+  return "divine";
 }
 
-// Poison: deals 1/8 max HP per turn
-export function poisonDamage(maxHP: number): number {
-  return Math.max(1, Math.floor(maxHP / 8));
+export const PHASE_NAMES: Record<BossPhase, string> = {
+  sacred: "Flamme Sacrée", rage: "Colère Ardente", divine: "Jugement Divin",
+};
+
+export const PHASE_COLORS: Record<BossPhase, { primary: string; secondary: string; glow: string }> = {
+  sacred: { primary: "#f59e0b", secondary: "#dc2626", glow: "rgba(245, 158, 11, 0.4)" },
+  rage:   { primary: "#ef4444", secondary: "#7c2d12", glow: "rgba(239, 68, 68, 0.5)" },
+  divine: { primary: "#fbbf24", secondary: "#f9fafb", glow: "rgba(251, 191, 36, 0.6)" },
+};
+
+export const HOOH_MOVES_SACRED: Move[] = [
+  { name: "Feu Sacré", power: 100, type: "Feu", effect: "burn", effectChance: 0.5 },
+  { name: "Lame d'Air", power: 75, type: "Vol" },
+  { name: "Séisme", power: 100, type: "Sol" },
+  { name: "Aurore", power: 0, type: "Normal" },
+];
+export const HOOH_MOVES_RAGE: Move[] = [
+  { name: "Feu Sacré", power: 130, type: "Feu", effect: "burn", effectChance: 0.5 },
+  { name: "Rapace", power: 120, type: "Vol" },
+  { name: "Séisme", power: 100, type: "Sol" },
+  { name: "Aurore", power: 0, type: "Normal" },
+];
+export const HOOH_MOVES_DIVINE: Move[] = [
+  { name: "Flamme Ultime", power: 160, type: "Feu", effect: "burn", effectChance: 0.6 },
+  { name: "Vent Divin", power: 140, type: "Vol" },
+  { name: "Séisme", power: 100, type: "Sol" },
+  { name: "Châtiment Sacré", power: 120, type: "Spectre" },
+];
+
+export function getHoOhMoves(phase: BossPhase): Move[] {
+  switch (phase) {
+    case "sacred": return HOOH_MOVES_SACRED;
+    case "rage": return HOOH_MOVES_RAGE;
+    case "divine": return HOOH_MOVES_DIVINE;
+  }
 }
+
+export function calculateBossCaptureRate(hpPercent: number): number {
+  if (hpPercent >= 0.50) return 0.001;
+  if (hpPercent >= 0.20) return 0.003;
+  if (hpPercent >= 0.05) return 0.008;
+  return 0.015;
+}
+
+export function getBossDamageMultiplier(phase: BossPhase): number {
+  switch (phase) {
+    case "sacred": return 1.0;
+    case "rage": return 1.35;
+    case "divine": return 1.7;
+  }
+}
+
+/* ═══════════════════════════════════════════════
+   QUIZ — Kimono Sisters questions
+   ═══════════════════════════════════════════════ */
+
+export interface QuizQuestion {
+  question: string;
+  options: string[];
+  correct: number; // index
+}
+
+export const QUIZ_QUESTIONS: QuizQuestion[] = [
+  { question: "Combien y a-t-il de Danseuses Kimono à Rosalia ?", options: ["3", "4", "5", "7"], correct: 2 },
+  { question: "Quel Pokémon les Danseuses Kimono invoquent-elles dans Or HeartGold ?", options: ["Lugia", "Ho-Oh", "Celebi", "Suicune"], correct: 1 },
+  { question: "Quel type est Raikou ?", options: ["Feu", "Eau", "Électrik", "Sol"], correct: 2 },
+  { question: "Quel événement a créé les trois chiens légendaires ?", options: ["Un tsunami", "L'incendie de la Tour Cendrée", "Un séisme", "La guerre de Johto"], correct: 1 },
+  { question: "Quel est le type de Ho-Oh ?", options: ["Feu/Vol", "Feu/Psy", "Normal/Vol", "Feu/Dragon"], correct: 0 },
+  { question: "Quelle attaque signature Ho-Oh possède-t-il ?", options: ["Déflagration", "Feu Sacré", "Flamme Ultime", "Eruption"], correct: 1 },
+  { question: "Dans quelle ville se trouve la Tour Cendrée ?", options: ["Doublonville", "Rosalia", "Oliville", "Acajou"], correct: 1 },
+  { question: "Quel type est super efficace contre les 3 types des chiens légendaires ?", options: ["Sol", "Roche", "Aucun", "Combat"], correct: 2 },
+  { question: "Quelle évolution d'Évoli la danseuse Satsuki utilise-t-elle ?", options: ["Aquali", "Voltali", "Pyroli", "Noctali"], correct: 2 },
+  { question: "Quel objet Ho-Oh est-il censé laisser derrière lui ?", options: ["Plume Arc-en-Ciel", "Cendre Sacrée", "Flamme Éternelle", "Écaille Miracle"], correct: 0 },
+  { question: "Combien de tours existent à Rosalia ?", options: ["1", "2", "3", "4"], correct: 1 },
+  { question: "Quel type bat Entei ET Suicune ?", options: ["Plante", "Sol", "Électrik", "Aucun des trois"], correct: 2 },
+  { question: "En quelle génération les Danseuses Kimono sont-elles apparues ?", options: ["Gen 1", "Gen 2", "Gen 3", "Gen 4"], correct: 1 },
+  { question: "Quel chien légendaire représente la foudre qui a frappé la tour ?", options: ["Entei", "Suicune", "Raikou", "Ho-Oh"], correct: 2 },
+  { question: "Quelle capacité spéciale Ho-Oh possède-t-il ?", options: ["Intimidation", "Pression", "Lévitation", "Brasier"], correct: 1 },
+];
+
+export const QUIZ_PASS_THRESHOLD = 10; // Need 10/15 to pass

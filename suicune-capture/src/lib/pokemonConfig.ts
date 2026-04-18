@@ -33,8 +33,7 @@ export interface PokemonConfig {
   encounterPos: [number, number, number];
   camPos: [number, number, number];
   camLookAtOffset: [number, number, number];
-  // New: render mode — "3d" for Suicune/Entei, "2d-battle" for Raikou
-  renderMode?: "3d" | "2d-battle";
+  renderMode?: "3d" | "2d-battle" | "2d-boss";
 }
 
 const POKEMON_CONFIGS: Record<string, PokemonConfig> = {
@@ -53,7 +52,6 @@ const POKEMON_CONFIGS: Record<string, PokemonConfig> = {
     encounterPos: [0.5, 5.5, -0.6], camPos: [7, 6.5, 3], camLookAtOffset: [0, 0.3, 0],
     renderMode: "3d",
   },
-
   entei: {
     name: "entei", displayName: "Entei", model: "entei", island: "island_entei",
     accentColor: "red", accentColorHex: "#ef4444", secondaryColor: "#f59e0b", glowColor: "#f97316",
@@ -69,14 +67,12 @@ const POKEMON_CONFIGS: Record<string, PokemonConfig> = {
     encounterPos: [0.5, 5.5, -0.6], camPos: [6.2, 5.0, 3.0], camLookAtOffset: [0, 0.3, 0],
     renderMode: "3d",
   },
-
   raikou: {
     name: "raikou", displayName: "Raikou", model: "raikou", island: "island_raikou",
     accentColor: "yellow", accentColorHex: "#fbbf24", secondaryColor: "#a855f7", glowColor: "#fde047",
     hudBorder: "rgba(251, 191, 36, 0.3)", hudGlow: "rgba(251, 191, 36, 0.08)",
     badgeColor: "text-yellow-400/70",
     titleGradient: "linear-gradient(135deg, #fff 0%, #fde047 50%, #fbbf24 100%)",
-    // 3D values not used (renderMode is 2d-battle), but kept for type safety
     spotlightColor: "#fbbf24", spotlightIntensity: 12, rimColor: "#a855f7", rimIntensity: 3,
     accentLightColor: "#fde047", auraColor1: "#fbbf24", auraColor2: "#a855f7",
     sparkleColor1: "#fde047", sparkleColor2: "#c4b5fd",
@@ -85,6 +81,21 @@ const POKEMON_CONFIGS: Record<string, PokemonConfig> = {
     islandPos: [0, -4, 0], islandScale: 0.035, islandRotationY: 0,
     encounterPos: [0, 5.5, 0], camPos: [7, 6.5, 3], camLookAtOffset: [0, 0.3, 0],
     renderMode: "2d-battle",
+  },
+  "ho-oh": {
+    name: "ho-oh", displayName: "Ho-Oh", model: "ho-oh", island: "island_hooh",
+    accentColor: "gold", accentColorHex: "#f59e0b", secondaryColor: "#dc2626", glowColor: "#fbbf24",
+    hudBorder: "rgba(245, 158, 11, 0.3)", hudGlow: "rgba(245, 158, 11, 0.1)",
+    badgeColor: "text-amber-400/70",
+    titleGradient: "linear-gradient(135deg, #fff 0%, #fde68a 30%, #f59e0b 60%, #dc2626 100%)",
+    spotlightColor: "#f59e0b", spotlightIntensity: 16, rimColor: "#dc2626", rimIntensity: 5,
+    accentLightColor: "#fbbf24", auraColor1: "#f59e0b", auraColor2: "#dc2626",
+    sparkleColor1: "#fbbf24", sparkleColor2: "#ef4444",
+    fireflyColor1: "#f59e0b", fireflyColor2: "#dc2626",
+    moonColor: "#fef3c7", fogColor: "#1a0800", bgColor: "#120800",
+    islandPos: [0, -4, 0], islandScale: 0.035, islandRotationY: 0,
+    encounterPos: [0, 5.5, 0], camPos: [7, 6.5, 3], camLookAtOffset: [0, 0.3, 0],
+    renderMode: "2d-boss",
   },
 };
 
