@@ -354,7 +354,7 @@ export default function AdminPage() {
               <p className="text-sm font-semibold">Spectateur</p>
               <p className="text-xs mt-1">Cliquez sur un combat dans l'onglet Live</p>
               <p className="text-xs mt-0.5">pour le regarder en temps réel</p>
-              <p className="text-[10px] mt-4 text-[#21262d]">Style Pokémon Showdown</p>
+              <p className="text-[10px] mt-4 text-[#21262d]">Hasbi</p>
             </div>
           </div>
         )}
