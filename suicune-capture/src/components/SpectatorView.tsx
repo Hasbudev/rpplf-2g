@@ -162,38 +162,70 @@ export function SpectatorView({ deviceId, onClose }: { deviceId: string; onClose
             ? bp === "divine" ? "linear-gradient(180deg, #1a1400 0%, #2d1e00 40%, #1a1200 100%)"
             : bp === "rage" ? "linear-gradient(180deg, #1a0400 0%, #2d0800 40%, #1a0400 100%)"
             : "linear-gradient(180deg, #1a0a04 0%, #2d1810 40%, #1a0c04 100%)"
+            : isBeasts
+            ? "linear-gradient(180deg, #0a0520 0%, #1a0c35 40%, #0a0518 100%)"
             : "linear-gradient(180deg, #0d1117 0%, #161b22 40%, #0d1117 100%)",
         }}>
-          {/* Boss side (top-right) — Showdown convention */}
-          <div className="absolute top-4 right-4 z-10 flex items-start gap-3 max-w-[60%]">
-            <div className="flex-1 text-right">
-              <div className="flex items-baseline justify-end gap-2 mb-1">
-                <span className="text-[13px] font-bold" style={{ color: bossColor }}>{bossName}</span>
-                <span className="text-[10px] text-[#8b949e]">L{bossLevel}</span>
-              </div>
-              {/* HP bar — Showdown style */}
-              <div className="flex items-center gap-1 justify-end">
-                <div className="w-36 h-[6px] bg-[#30363d] rounded-full overflow-hidden">
-                  <div className="h-full rounded-full transition-all duration-700" style={{
-                    width: `${bossHpPct}%`, background: hpCol(bossHpPct),
-                    boxShadow: `0 0 6px ${hpCol(bossHpPct)}40`,
-                  }} />
-                </div>
-                <span className="text-[10px] font-mono" style={{ color: hpCol(bossHpPct) }}>{Math.round(bossHpPct)}%</span>
-              </div>
+          {/* Boss section — adapts between 3v3 beasts and 1v1 Ho-Oh */}
+          {isBeasts ? (
+            /* 3v3 BEASTS VIEW */
+            <div className="absolute top-3 left-0 right-0 flex justify-center gap-4 sm:gap-8 z-10 px-4">
+              {BEAST_CONFIGS.map((b, i) => {
+                const isActive = data.currentBeast === b.name;
+                const hpPct = i === 0 ? bossHpPct :
+                              i === 1 ? (data.raikouMaxHP > 0 ? (data.raikouHP / data.raikouMaxHP) * 100 : 100) :
+                              100; // approximate — we only track the focused beast
+                return (
+                  <div key={i} className="text-center" style={{ opacity: isActive ? 1 : 0.6 }}>
+                    <img src={b.sprite} alt={b.name}
+                      style={{ imageRendering: "pixelated", width: "70px", margin: "0 auto",
+                        filter: isActive ? `drop-shadow(0 0 12px ${b.glowColor})` : "grayscale(0.5)",
+                        animation: isActive ? "showdown-float 3s ease-in-out infinite" : "none" }}
+                      onError={e => { e.currentTarget.style.display = "none"; }} />
+                    <div className="mt-1" style={{ width: "70px", margin: "4px auto 0" }}>
+                      <div className="text-[9px] font-bold mb-0.5" style={{ color: b.color }}>{b.displayName}</div>
+                      {isActive && (
+                        <div className="h-1.5 bg-[#30363d] rounded-full overflow-hidden">
+                          <div className="h-full rounded-full transition-all duration-700"
+                            style={{ width: `${bossHpPct}%`, background: hpCol(bossHpPct) }} />
+                        </div>
+                      )}
+                      {isActive && <div className="text-[8px] font-mono mt-0.5" style={{ color: hpCol(bossHpPct) }}>{Math.round(bossHpPct)}%</div>}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
-          </div>
-
-          {/* Boss sprite (center-right) */}
-          <div className="absolute right-[15%] top-[30%] z-5">
-            {bossSprite && (
-              <img src={bossSprite} alt={bossName}
-                style={{ imageRendering: "pixelated", width: "120px", filter: `drop-shadow(0 0 12px ${bossColor}40)`,
-                  animation: "showdown-float 3s ease-in-out infinite" }}
-                onError={(e) => { e.currentTarget.style.display = "none"; }}
-              />
-            )}
-          </div>
+          ) : (
+            /* 1v1 HO-OH VIEW */
+            <>
+              <div className="absolute top-4 right-4 z-10 flex items-start gap-3 max-w-[60%]">
+                <div className="flex-1 text-right">
+                  <div className="flex items-baseline justify-end gap-2 mb-1">
+                    <span className="text-[13px] font-bold" style={{ color: bossColor }}>{bossName}</span>
+                    <span className="text-[10px] text-[#8b949e]">L{bossLevel}</span>
+                  </div>
+                  <div className="flex items-center gap-1 justify-end">
+                    <div className="w-36 h-[6px] bg-[#30363d] rounded-full overflow-hidden">
+                      <div className="h-full rounded-full transition-all duration-700" style={{
+                        width: `${bossHpPct}%`, background: hpCol(bossHpPct),
+                        boxShadow: `0 0 6px ${hpCol(bossHpPct)}40`,
+                      }} />
+                    </div>
+                    <span className="text-[10px] font-mono" style={{ color: hpCol(bossHpPct) }}>{Math.round(bossHpPct)}%</span>
+                  </div>
+                </div>
+              </div>
+              <div className="absolute right-[15%] top-[30%] z-5">
+                {bossSprite && (
+                  <img src={bossSprite} alt={bossName}
+                    style={{ imageRendering: "pixelated", width: "120px", filter: `drop-shadow(0 0 12px ${bossColor}40)`,
+                      animation: "showdown-float 3s ease-in-out infinite" }}
+                    onError={(e) => { e.currentTarget.style.display = "none"; }} />
+                )}
+              </div>
+            </>
+          )}
 
           {/* Player side (bottom-left) — Showdown convention */}
           <div className="absolute bottom-4 left-4 z-10 max-w-[60%]">

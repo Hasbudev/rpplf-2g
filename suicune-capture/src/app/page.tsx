@@ -116,60 +116,42 @@ export default function Page() {
     if (inBossEvent || pseudoConfirmed) {
       if (!inBossEvent) setInBossEvent(true);
 
-      const eventPhase = event.phase;
+      // ── AUTO-ROUTING par joueur — pas de phase globale ──
+      // Chaque joueur avance selon son propre progress Firestore
 
-      // QUIZ PHASE
-      if (eventPhase === "quiz") {
-        if (progress.quizPassed) {
-          return <WaitingScreen title="Quiz réussi !" subtitle={`Score: ${progress.quizScore}/15 — En attente de la phase suivante…`} color="#22c55e" pseudo={pseudo} />;
-        }
+      if (progress.loading) {
+        return <LoadingScreen pseudo={pseudo} />;
+      }
+
+      // ÉTAPE 1 — QUIZ
+      if (!progress.quizPassed) {
         return (
-          <QuizScreen pseudo={pseudo} onComplete={(passed, score) => {
-            // Quiz done — wait for admin to advance phase
+          <QuizScreen pseudo={pseudo} onComplete={() => {
+            // submitQuizResult est appelé dans QuizScreen après le dialogue
           }} />
         );
       }
 
-      // BEASTS PHASE
-      if (eventPhase === "beasts") {
-        if (!progress.quizPassed) {
-          return <WaitingScreen title="Quiz non réussi" subtitle="Tu n'as pas passé le quiz. Tu ne peux pas combattre les bêtes." color="#ef4444" pseudo={pseudo} blocked />;
-        }
-        if (progress.beastsPassed) {
-          return <WaitingScreen title="Trio vaincu !" subtitle={`${progress.beastsDefeated}/3 bêtes vaincues — En attente du boss final…`} color="#22c55e" pseudo={pseudo} />;
-        }
-        if (!player) {
-          return <WaitingScreen title="Dresseur introuvable" subtitle={`Le pseudo "${pseudo}" n'est pas dans la liste.`} color="#ef4444" pseudo={pseudo} blocked />;
-        }
-        if (player.badges < REQUIRED_BADGES) {
-          return <WaitingScreen title="Pas assez de badges" subtitle={`${player.badges}/${REQUIRED_BADGES} badges. Il t'en faut ${REQUIRED_BADGES}.`} color="#ef4444" pseudo={pseudo} blocked />;
-        }
+      // ÉTAPE 2 — 3v3 LÉGENDAIRES
+      if (!progress.beastsPassed) {
+        if (!player) return <LoadingScreen pseudo={pseudo} />;
         return (
-          <BeastsBattle pseudo={pseudo} player={player} onComplete={(passed, defeated) => {
-            // Results saved via submitBeastsResult in component
+          <BeastsBattle pseudo={pseudo} player={player} onComplete={() => {
+            // submitBeastsResult appelé dans BeastsBattle après dialogue victoire
           }} />
         );
       }
 
-      // HO-OH PHASE
-      if (eventPhase === "hooh") {
-        if (!progress.beastsPassed) {
-          return <WaitingScreen title="Accès refusé" subtitle="Il faut vaincre le trio légendaire d'abord." color="#ef4444" pseudo={pseudo} blocked />;
-        }
-        if (!player) {
-          return <WaitingScreen title="Erreur" subtitle="Joueur introuvable." color="#ef4444" pseudo={pseudo} blocked />;
-        }
-        return (
-          <HoOhBattle pseudo={pseudo} player={player} onComplete={(won) => {
-            setInBossEvent(false);
-            setPseudoConfirmed(false);
-            setPseudo("");
-            setPhase("intro");
-          }} />
-        );
-      }
-
-      return <WaitingScreen title="En attente" subtitle="L'admin n'a pas encore lancé la phase suivante." color="#f59e0b" pseudo={pseudo} />;
+      // ÉTAPE 3 — HO-OH BOSS FINAL
+      if (!player) return <LoadingScreen pseudo={pseudo} />;
+      return (
+        <HoOhBattle pseudo={pseudo} player={player} onComplete={(won) => {
+          setInBossEvent(false);
+          setPseudoConfirmed(false);
+          setPseudo("");
+          setPhase("intro");
+        }} />
+      );
     }
   }
 
@@ -225,6 +207,18 @@ export default function Page() {
    WAITING SCREEN — for boss event between phases
    ═══════════════════════════════════════════════ */
 
+function LoadingScreen({ pseudo }: { pseudo: string }) {
+  return (
+    <div className="h-dvh w-full flex items-center justify-center"
+      style={{ background: "radial-gradient(ellipse at 50% 30%, #1a0800, #0a0400)", fontFamily: "'Courier New', monospace" }}>
+      <div className="text-center">
+        <div className="w-12 h-12 border-4 border-amber-400 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+        <p className="text-amber-300/60 text-sm">Chargement de l'équipe de {pseudo}…</p>
+      </div>
+    </div>
+  );
+}
+
 function WaitingScreen({ title, subtitle, color, pseudo, blocked }: {
   title: string; subtitle: string; color: string; pseudo: string; blocked?: boolean;
 }) {
@@ -278,39 +272,195 @@ function PseudoScreen({ pseudo, setPseudo, onConfirm, cfg, isBossEvent }: {
   const isElectricType = cfg.name === "raikou";
   const isBoss = isBossEvent || cfg.name === "ho-oh";
 
+  /* ══════════════════════════════════════════════
+     BOSS EVENT — Écran d'accueil épique Ho-Oh
+     ══════════════════════════════════════════════ */
+  if (isBoss) {
+    const HOOH = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/showdown/250.gif";
+    const RAINBOW = ["#ef4444","#f97316","#fbbf24","#22c55e","#3b82f6","#8b5cf6","#ec4899"];
+    return (
+      <div className="h-dvh w-full overflow-hidden relative flex flex-col"
+        style={{ background: "linear-gradient(180deg,#030100 0%,#0d0500 20%,#180700 55%,#0a0400 100%)" }}>
+
+        {/* Fire particles */}
+        <SacredFireBG />
+
+        {/* Rainbow light beams */}
+        <div className="absolute inset-0 pointer-events-none overflow-hidden">
+          {RAINBOW.map((c, i) => (
+            <div key={i} className="absolute top-0"
+              style={{
+                left: `${7 + i * 13}%`, width: "3px", height: "40%",
+                background: `linear-gradient(180deg,${c}00,${c}25,${c}00)`,
+                filter: "blur(3px)",
+                transform: `rotate(${-10 + i * 3.5}deg)`,
+                transformOrigin: "top center",
+                animation: `beam-ps ${3.5 + i * 0.4}s ${i * 0.2}s ease-in-out infinite`,
+              }} />
+          ))}
+        </div>
+
+        {/* Top golden glow */}
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 pointer-events-none"
+          style={{ width: "800px", height: "380px", background: "radial-gradient(ellipse,rgba(245,158,11,0.10),transparent 60%)", filter: "blur(50px)" }} />
+
+        {/* ── Tout centré verticalement ── */}
+        <div className="flex-1 flex flex-col items-center justify-center px-5 py-6 relative z-10">
+
+          {/* LIVE badge */}
+          <motion.div initial={{ opacity:0, y:-15 }} animate={{ opacity:1, y:0 }} transition={{ delay:0.2 }}
+            className="flex items-center gap-2 mb-5 px-4 py-1.5 rounded-full"
+            style={{ background:"rgba(239,68,68,0.10)", border:"1px solid rgba(239,68,68,0.22)" }}>
+            <motion.span animate={{ opacity:[1,0.2,1] }} transition={{ duration:1.2, repeat:Infinity }}
+              className="w-2 h-2 rounded-full bg-red-500 inline-block" />
+            <span className="text-[10px] font-black text-red-400 tracking-[0.35em] uppercase">Événement en cours</span>
+          </motion.div>
+
+          {/* Ho-Oh sprite */}
+          <motion.div className="relative mb-3"
+            animate={{ y:[0,-14,0] }} transition={{ duration:4.5, repeat:Infinity, ease:"easeInOut" }}>
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none rounded-full"
+              style={{ width:"280px", height:"280px", background:"radial-gradient(circle,rgba(245,158,11,0.14),transparent 65%)", filter:"blur(30px)", animation:"aura-ps 4s ease-in-out infinite" }} />
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none rounded-full"
+              style={{ width:"140px", height:"140px", background:"radial-gradient(circle,rgba(239,68,68,0.18),transparent 70%)", filter:"blur(20px)", animation:"aura-ps 2.8s 0.5s ease-in-out infinite reverse" }} />
+            <img src={HOOH} alt="Ho-Oh"
+              style={{
+                imageRendering:"pixelated", width:"min(180px,36vw)", position:"relative",
+                filter:"drop-shadow(0 0 35px rgba(245,158,11,0.80)) drop-shadow(0 0 70px rgba(220,38,38,0.25)) brightness(1.15)",
+              }}
+              onError={e => { (e.currentTarget as HTMLImageElement).src = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/250.png"; }} />
+          </motion.div>
+
+          {/* RPPLF logo */}
+          <motion.div initial={{ opacity:0 }} animate={{ opacity:1 }} transition={{ delay:0.25 }} className="mb-2">
+            <img src={`${BASE_PATH}/textures/logo.png`} alt="RPPLF"
+              style={{ width:"36px", opacity:0.28, filter:"sepia(1) saturate(3) hue-rotate(20deg)" }} />
+          </motion.div>
+
+          {/* Title */}
+          <motion.h1
+            initial={{ opacity:0, scale:0.88 }} animate={{ opacity:1, scale:1 }} transition={{ delay:0.4, duration:0.7 }}
+            className="text-center font-black leading-none px-4 mb-3"
+            style={{
+              fontSize:"clamp(30px,7.5vw,56px)",
+              background:"linear-gradient(140deg,#fef9c3 0%,#fde68a 20%,#fbbf24 40%,#f59e0b 58%,#ef4444 78%,#7f1d1d 100%)",
+              WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent", backgroundClip:"text",
+              letterSpacing:"-0.025em",
+            }}>
+            La Quête de Ho-Oh
+          </motion.h1>
+
+          {/* Divider */}
+          <motion.div initial={{ scaleX:0 }} animate={{ scaleX:1 }} transition={{ delay:0.65, duration:0.5 }}
+            className="w-28 h-px mb-4"
+            style={{ background:"linear-gradient(90deg,transparent,rgba(245,158,11,0.45),transparent)" }} />
+
+          {/* Steps */}
+          <motion.div initial={{ opacity:0 }} animate={{ opacity:1 }} transition={{ delay:0.8 }}
+            className="flex items-center gap-2 mb-7">
+            {[["📜","Quiz","#6366f1"],["⚔️","3v3","#f59e0b"],["🌈","Ho-Oh","#ef4444"]].map(([icon,label,color],i) => (
+              <div key={i} className="flex items-center gap-1.5">
+                <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full"
+                  style={{ background:`${color}12`, border:`1px solid ${color}30` }}>
+                  <span className="text-[11px]">{icon}</span>
+                  <span className="text-[9px] font-black tracking-wide" style={{ color }}>{label}</span>
+                </div>
+                {i < 2 && <span style={{ color:"rgba(245,158,11,0.2)", fontSize:"8px" }}>▶</span>}
+              </div>
+            ))}
+          </motion.div>
+
+          {/* Input card */}
+          <motion.div
+            initial={{ opacity:0, y:20 }} animate={{ opacity:1, y:0 }} transition={{ delay:0.35, duration:0.6 }}
+            className="w-full max-w-xs">
+            <div className="rounded-2xl overflow-hidden"
+              style={{
+                background:"rgba(8,3,0,0.82)",
+                border:"1px solid rgba(245,158,11,0.18)",
+                backdropFilter:"blur(24px)",
+                boxShadow:"0 0 80px rgba(245,158,11,0.07),0 20px 60px rgba(0,0,0,0.6),inset 0 1px 0 rgba(245,158,11,0.10)",
+              }}>
+              <div className="px-5 pt-5 pb-4">
+                <label className="block text-[10px] font-black mb-2.5 tracking-[0.35em] uppercase text-center"
+                  style={{ color:"rgba(245,158,11,0.45)" }}>
+                  Ton Pseudo Dresseur
+                </label>
+                <input
+                  type="text" value={pseudo}
+                  onChange={e => setPseudo(e.target.value.substring(0, 30))}
+                  onKeyDown={e => e.key === "Enter" && valid && onConfirm()}
+                  placeholder="Ex: Sacha, Ondine…" autoFocus
+                  className="w-full px-4 py-3.5 rounded-xl text-sm font-bold text-center outline-none transition-all"
+                  style={{
+                    background:"rgba(255,255,255,0.04)",
+                    border:`1px solid ${valid ? "rgba(245,158,11,0.35)" : "rgba(245,158,11,0.12)"}`,
+                    color:"#fef3c7", caretColor:"#f59e0b",
+                    boxShadow: valid ? "0 0 20px rgba(245,158,11,0.08)" : "none",
+                  }} />
+              </div>
+              <div className="px-5 pb-5">
+                <button onClick={onConfirm} disabled={!valid}
+                  className="w-full py-4 rounded-xl text-sm font-black tracking-wider transition-all relative overflow-hidden disabled:opacity-25 disabled:cursor-not-allowed"
+                  style={{
+                    background: valid ? "linear-gradient(135deg,#f59e0b,#ef4444)" : "rgba(255,255,255,0.05)",
+                    color: valid ? "#fff" : "rgba(255,255,255,0.25)",
+                    boxShadow: valid ? "0 0 30px rgba(245,158,11,0.30),0 4px 16px rgba(0,0,0,0.5)" : "none",
+                    letterSpacing:"0.08em",
+                  }}>
+                  ENTRER DANS LA TOUR ⚔️
+                  {valid && (
+                    <div className="absolute inset-0 pointer-events-none"
+                      style={{ background:"linear-gradient(90deg,transparent,rgba(255,255,255,0.12),transparent)", animation:"shimmer-ps 2.5s infinite" }} />
+                  )}
+                </button>
+                <p className="text-center text-[9px] mt-3 tracking-widest" style={{ color:"rgba(255,255,255,0.10)" }}>
+                  Quiz → 3v3 Légendaires → Boss Final Ho-Oh
+                </p>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+
+        <style>{`
+          @keyframes beam-ps  { 0%,100%{opacity:.2} 50%{opacity:.9} }
+          @keyframes aura-ps  { 0%,100%{transform:translate(-50%,-50%) scale(1);opacity:.6} 50%{transform:translate(-50%,-50%) scale(1.18);opacity:1} }
+          @keyframes shimmer-ps { 0%{transform:translateX(-100%)} 100%{transform:translateX(100%)} }
+        `}</style>
+      </div>
+    );
+  }
+
+  /* ── Événements normaux (Suicune / Entei / Raikou) — inchangés ── */
   return (
     <div className="h-dvh w-full flex flex-col items-center justify-center p-6 text-center relative overflow-hidden" style={{
-      background: isBoss ? "linear-gradient(180deg, #2d1208 0%, #1a0800 50%, #0a0400 100%)"
-        : isFireType ? "linear-gradient(180deg, #1a0808 0%, #0d0404 50%, #050810 100%)"
+      background: isFireType ? "linear-gradient(180deg, #1a0808 0%, #0d0404 50%, #050810 100%)"
         : isElectricType ? "linear-gradient(180deg, #1a1408 0%, #0d0a04 50%, #050410 100%)"
         : undefined,
     }}>
-      {isBoss && <SacredFireBG />}
-      {isFireType && !isBoss && <FireEmbers />}
+      {isFireType && <FireEmbers />}
       {isElectricType && <><ElectricSparks /><LightningStrikes /></>}
-      {!isFireType && !isElectricType && !isBoss && <div className="lobby-bg absolute inset-0" />}
+      {!isFireType && !isElectricType && <div className="lobby-bg absolute inset-0" />}
       <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full blur-[120px] pointer-events-none" style={{ background: `${cfg.accentColorHex}08` }} />
       <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }} className="relative w-full max-w-sm z-10">
         <div className="flex justify-center mb-6">
           <span className="event-badge event-badge-live"><span className="live-dot" />Événement en cours</span>
         </div>
         <h1 className="text-3xl sm:text-4xl font-black mb-2 text-white" style={{ fontFamily: "var(--font-display)" }}>
-          {isBoss ? "Le Rituel Commence" : "Qui es-tu, dresseur ?"}
+          Qui es-tu, dresseur ?
         </h1>
-        <p className="text-sm text-white/40 mb-8">
-          {isBoss ? "Entre ton pseudo pour le Boss Event Ho-Oh" : `Entre ton pseudo pour affronter ${cfg.displayName}`}
-        </p>
+        <p className="text-sm text-white/40 mb-8">Entre ton pseudo pour affronter {cfg.displayName}</p>
         <div className="mb-6">
           <input type="text" value={pseudo} onChange={(e) => setPseudo(e.target.value.substring(0, 30))}
             onKeyDown={(e) => e.key === "Enter" && valid && onConfirm()}
             placeholder="Ton pseudo..." autoFocus
             className="w-full bg-white/5 border border-white/10 rounded-xl px-5 py-4 text-white text-lg text-center font-semibold outline-none focus:border-cyan-400/40 transition-all placeholder:text-white/20" />
           <p className="text-xs text-white/20 mt-2">
-            {isBoss ? "Quiz → Combat 3v3 → Boss Ho-Oh" : isElectricType ? "4 badges requis" : "3 essais par événement"}
+            {isElectricType ? "4 badges requis" : "3 essais par événement"}
           </p>
         </div>
         <button onClick={onConfirm} disabled={!valid} className="btn-throw w-full text-lg py-4 disabled:opacity-30">
-          {isBoss ? "Commencer le Rituel" : "Entrer dans l'arène"}
+          Entrer dans l'arène
         </button>
         <div className="mt-8 flex justify-center">
           <img src={`${BASE_PATH}/textures/logo.png`} alt="RPPLF" className="w-20 opacity-40" />

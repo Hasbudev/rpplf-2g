@@ -1,6 +1,6 @@
 // PokeAPI fetcher — gets pokemon types and sprite
 
-import { TYPE_FR, type PokemonType } from "./battleSystem";
+import { TYPE_FR, type PokemonType, type Move } from "./battleSystem";
 
 // French pokemon names → English (PokeAPI uses English)
 // We translate the most common Gen 1-2 pokemons. For others, fall back to lowercase.
@@ -152,4 +152,98 @@ export async function fetchPokemonBatch(names: string[]): Promise<Map<string, Po
     })
   );
   return results;
+}
+
+/* ═══════════════════════════════════════════════
+   REAL LEVEL-UP MOVESET FETCHER
+   ═══════════════════════════════════════════════ */
+
+
+const moveDetailCache = new Map<string, Move | null>();
+const movepoolCache   = new Map<string, Move[]>();
+
+const AILMENT_MAP: Record<string, Move["effect"]> = {
+  "paralysis":  "paralysis",
+  "burn":       "burn",
+  "freeze":     "freeze",
+  "poison":     "poison",
+  "bad-poison": "poison",
+  "sleep":      "sleep",
+};
+
+async function fetchMoveDetails(moveName: string): Promise<Move | null> {
+  if (moveDetailCache.has(moveName)) return moveDetailCache.get(moveName)!;
+  try {
+    const res  = await fetch(`https://pokeapi.co/api/v2/move/${moveName}`);
+    if (!res.ok) { moveDetailCache.set(moveName, null); return null; }
+    const data = await res.json();
+
+    // French name
+    const frEntry = data.names?.find((n: any) => n.language.name === "fr");
+    const name    = frEntry?.name ?? moveName;
+
+    const typeFr  = TYPE_FR[data.type?.name] as PokemonType | undefined;
+    if (!typeFr)  { moveDetailCache.set(moveName, null); return null; }
+
+    const power: number = data.power ?? 0;
+
+    const ailmentName: string = data.meta?.ailment?.name ?? "none";
+    const effect     = AILMENT_MAP[ailmentName];
+    const effectChance = effect && data.meta?.ailment_chance
+      ? data.meta.ailment_chance / 100
+      : undefined;
+
+    const move: Move = {
+      name,
+      power,
+      type: typeFr,
+      ...(effect ? { effect, effectChance } : {}),
+    };
+
+    moveDetailCache.set(moveName, move);
+    return move;
+  } catch {
+    moveDetailCache.set(moveName, null);
+    return null;
+  }
+}
+
+export async function fetchLevelUpMoves(frenchName: string): Promise<Move[]> {
+  const apiName = normalizeName(frenchName);
+  if (movepoolCache.has(apiName)) return movepoolCache.get(apiName)!;
+
+  try {
+    const res  = await fetch(`https://pokeapi.co/api/v2/pokemon/${apiName}`);
+    if (!res.ok) return [];
+    const data = await res.json();
+
+    const levelUpMoves: { name: string; level: number }[] = [];
+    const seen = new Set<string>();
+
+    for (const entry of data.moves ?? []) {
+      for (const vgd of entry.version_group_details ?? []) {
+        if (
+          vgd.move_learn_method?.name === "level-up" &&
+          vgd.level_learned_at <= 100 &&
+          !seen.has(entry.move.name)
+        ) {
+          seen.add(entry.move.name);
+          levelUpMoves.push({ name: entry.move.name, level: vgd.level_learned_at });
+          break;
+        }
+      }
+    }
+
+    levelUpMoves.sort((a, b) => a.level - b.level);
+
+    const details = await Promise.all(
+      levelUpMoves.map(m => fetchMoveDetails(m.name))
+    );
+
+    const pool = details.filter((m): m is Move => m !== null);
+    movepoolCache.set(apiName, pool);
+    return pool;
+  } catch {
+    return [];
+  }
 }

@@ -28,6 +28,7 @@ exports.startEvent = functions.https.onCall(async (data) => {
   const pokemon = input?.pokemon ?? "suicune";
   const eventType = input?.eventType ?? "normal";
   const phase = input?.phase ?? null;
+  const autoAdvance = input?.autoAdvance !== false;
 
   await db.doc(EVENT_DOC).set({
     active: true,
@@ -36,6 +37,7 @@ exports.startEvent = functions.https.onCall(async (data) => {
     pokemon,
     eventType,
     phase,
+    autoAdvance,
   });
 
   // Clear previous live battles

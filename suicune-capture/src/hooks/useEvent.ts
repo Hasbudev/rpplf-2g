@@ -22,13 +22,14 @@ export interface EventState {
   /** Boss event fields */
   eventType: "normal" | "boss_event";
   phase: EventPhase | null;
+  autoAdvance: boolean;
 }
 
 export function useEvent(): EventState {
   const [state, setState] = useState<EventState>({
     active: false, remaining: 0, display: "00:00", duration: 600,
     startedAt: null, loading: true, pokemon: "suicune",
-    eventType: "normal", phase: null,
+    eventType: "normal", phase: null, autoAdvance: true,
   });
 
   useEffect(() => {
@@ -46,6 +47,7 @@ export function useEvent(): EventState {
         pokemon: data.pokemon ?? "suicune",
         eventType: data.eventType ?? "normal",
         phase: data.phase ?? null,
+        autoAdvance: data.autoAdvance !== false,
         loading: false,
       }));
     }, (err) => {

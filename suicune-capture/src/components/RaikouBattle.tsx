@@ -191,12 +191,12 @@ export function RaikouBattle({ pseudo, onComplete }: { pseudo: string; onComplet
 
     // If immune to electric, MUST use Ébullition (water move)
     if (electricEff === 0) {
-      const scald = RAIKOU_MOVES.find((m) => m.name === "Ébullition");
+      const scald = RAIKOU_MOVES.find((m: Move) => m.name === "Ébullition");
       if (scald) return scald;
     }
 
     // Otherwise pick a damaging move at random (avoid Cage-Éclair if opponent already paralyzed)
-    const damagingMoves = RAIKOU_MOVES.filter((m) => {
+    const damagingMoves = RAIKOU_MOVES.filter((m: Move) => {
       if (m.power === 0) {
         // Status move: only use if opponent isn't already statused
         return opponent.status.status === null && !opponent.data.types.includes("Électrik");
