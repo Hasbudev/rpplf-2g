@@ -308,7 +308,7 @@ function LobbyScreen({
                 value={inputValue}
                 onChange={e => setInputValue(e.target.value)}
                 onKeyDown={e => e.key === "Enter" && !loading && eventActive && onSubmit()}
-                placeholder="Ex: Sacha, Ondine…"
+                placeholder="Ex: Hasbi, Tchoupi"
                 disabled={loading || !eventActive}
                 className="w-full px-4 py-3 rounded-xl text-sm font-bold outline-none disabled:opacity-40 transition-all"
                 style={{

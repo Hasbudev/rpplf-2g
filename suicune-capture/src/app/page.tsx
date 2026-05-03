@@ -390,7 +390,7 @@ function PseudoScreen({ pseudo, setPseudo, onConfirm, cfg, isBossEvent }: {
                   type="text" value={pseudo}
                   onChange={e => setPseudo(e.target.value.substring(0, 30))}
                   onKeyDown={e => e.key === "Enter" && valid && onConfirm()}
-                  placeholder="Ex: Sacha, Ondine…" autoFocus
+                  placeholder="Ex: Hasbi, Tchoupi" autoFocus
                   className="w-full px-4 py-3.5 rounded-xl text-sm font-bold text-center outline-none transition-all"
                   style={{
                     background:"rgba(255,255,255,0.04)",
