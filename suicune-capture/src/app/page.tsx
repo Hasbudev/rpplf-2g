@@ -7,7 +7,8 @@ import { RaikouBattle } from "../components/RaikouBattle";
 import { QuizScreen } from "../components/QuizScreen";
 import { BeastsBattle } from "../components/BeastsBattle";
 import { HoOhBattle } from "../components/HoOhBattle";
-import { useEvent, useCapture, useCheckAttempts, usePlayerProgress, CaptureResult } from "../hooks/useEvent";
+import { CreditsScreen } from "../components/CreditsScreen";
+import { useEvent, useCapture, useCheckAttempts, usePlayerProgress, resetBossProgress, CaptureResult } from "../hooks/useEvent";
 import { getPokemonConfig } from "../lib/pokemonConfig";
 import { fetchPlayers, REQUIRED_BADGES, type Player } from "../lib/playerRoster";
 
@@ -35,6 +36,7 @@ export default function Page() {
   const [inRaikouBattle, setInRaikouBattle] = useState(false);
   const [inBossEvent, setInBossEvent] = useState(false);
   const [player, setPlayer] = useState<Player | null>(null);
+  const [showCredits, setShowCredits] = useState(false);
 
   // Boss event progress tracker
   const progress = usePlayerProgress(event.active && event.eventType === "boss_event", pseudo);
@@ -93,6 +95,21 @@ export default function Page() {
   const showResult = phase === "captured" || phase === "fled" || phase === "exhausted";
 
   // ═══════════════════════════════════════════════
+  // CREDITS (après victoire Ho-Oh)
+  // ═══════════════════════════════════════════════
+  if (showCredits) {
+    return (
+      <CreditsScreen pseudo={pseudo} won={true} onClose={() => {
+        setShowCredits(false);
+        setInBossEvent(false);
+        setPseudoConfirmed(false);
+        setPseudo("");
+        setPhase("intro");
+      }} />
+    );
+  }
+
+  // ═══════════════════════════════════════════════
   // LOBBY (no event)
   // ═══════════════════════════════════════════════
   if (!event.active && !event.loading && phase === "intro" && !inRaikouBattle && !inBossEvent) {
@@ -136,8 +153,14 @@ export default function Page() {
       if (!progress.beastsPassed) {
         if (!player) return <LoadingScreen pseudo={pseudo} />;
         return (
-          <BeastsBattle pseudo={pseudo} player={player} onComplete={() => {
-            // submitBeastsResult appelé dans BeastsBattle après dialogue victoire
+          <BeastsBattle pseudo={pseudo} player={player} onComplete={(passed) => {
+            if (!passed) {
+              resetBossProgress().then(() => {
+                setInBossEvent(false);
+                setPseudoConfirmed(false);
+                setPseudo("");
+              });
+            }
           }} />
         );
       }
@@ -146,10 +169,14 @@ export default function Page() {
       if (!player) return <LoadingScreen pseudo={pseudo} />;
       return (
         <HoOhBattle pseudo={pseudo} player={player} onComplete={(won) => {
-          setInBossEvent(false);
-          setPseudoConfirmed(false);
-          setPseudo("");
-          setPhase("intro");
+          if (won) {
+            setShowCredits(true);
+          } else {
+            setInBossEvent(false);
+            setPseudoConfirmed(false);
+            setPseudo("");
+            setPhase("intro");
+          }
         }} />
       );
     }

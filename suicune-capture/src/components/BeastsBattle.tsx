@@ -6,10 +6,11 @@ import { calculateDamage, calculateMaxHP, getEffectiveness, pickMovesForPokemon,
 import { TeamBuilder, type TeamMemberConfig, type TeamBuilderMember } from "./TeamBuilder";
 import { updateLiveBattle, submitBeastsResult } from "../hooks/useEvent";
 import { MusicPlayer } from "./MusicPlayer";
+import { BeastsIntroScene, BeastsDefeatScene } from "./DialogueScene";
 import type { Player, PlayerPokemon } from "../lib/playerRoster";
 
 const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
-type Phase = "loading"|"intro_scene"|"builder"|"team_select"|"battle"|"victory_scene"|"victory"|"defeat";
+type Phase = "loading"|"intro_scene"|"builder"|"team_select"|"battle"|"victory_scene"|"victory"|"defeat_scene"|"defeat";
 
 interface TeamMember { pokemon: PlayerPokemon; data: PokemonData; currentHP: number; maxHP: number; fainted: boolean; moves: Move[]; status: StatusState; item: Item; evSpread: EVSpread; itemUsed: boolean; }
 interface BeastState { config: typeof BEAST_CONFIGS[0]; hp: number; maxHP: number; status: StatusState; defeated: boolean; }
@@ -50,6 +51,8 @@ export function BeastsBattle({ pseudo, player, onComplete }: { pseudo: string; p
 
   const executeTurn = useCallback(async () => {
     setBusy(true);
+    // local mutable copy — évite activeSlots stale quand plusieurs pokémons tombent en un tour
+    let slotsNow = [...activeSlots];
 
     // ═══ BEASTS ATTACK FIRST ═══
     setLog(["— Le Trio attaque ! —"]);
@@ -57,21 +60,19 @@ export function BeastsBattle({ pseudo, player, onComplete }: { pseudo: string; p
     for (let bi = 0; bi < beastsRef.current.length; bi++) {
       const beast = beastsRef.current[bi]; if (beast.defeated) continue;
       if (beast.status.status === "paralysis" && !canMoveWithParalysis()) { setLog(l => [...l, `${beast.config.displayName} est paralysé !`]); await sleep(600); continue; }
-      const targets = activeSlots.map((idx, si) => ({ si, idx })).filter(({ idx }) => idx !== null && teamRef.current[idx!] && !teamRef.current[idx!].fainted);
+      const targets = slotsNow.map((idx, si) => ({ si, idx })).filter(({ idx }) => idx !== null && teamRef.current[idx!] && !teamRef.current[idx!].fainted);
       if (targets.length === 0) break;
       const target = targets[Math.floor(Math.random() * targets.length)];
       const tm = teamRef.current[target.idx!]; if (!tm) continue;
       const moves = beast.config.moves.filter(m => m.power > 0);
-      // Smart AI: avoid immune matchups, prefer super-effective moves
+      // IA légendaire : toujours super-efficace si possible
       const validMoves = moves.filter(m => getEffectiveness(m.type, tm.data.types) > 0);
       const superEffMoves = validMoves.filter(m => getEffectiveness(m.type, tm.data.types) > 1);
-      const movesToUse = superEffMoves.length > 0 && Math.random() < 0.7
-        ? superEffMoves  // 70% chance to use super-effective if available
-        : validMoves.length > 0 ? validMoves : moves;
+      const movesToUse = superEffMoves.length > 0 ? superEffMoves : validMoves.length > 0 ? validMoves : moves;
       const move = movesToUse[Math.floor(Math.random() * movesToUse.length)] || beast.config.moves[0];
       const eff = getEffectiveness(move.type, tm.data.types);
       const stab = beast.config.types.includes(move.type);
-      let damage = eff === 0 ? 0 : Math.floor(calculateDamage(beast.config.level, move.power, eff, stab) * 1.3); // +30% harder
+      let damage = eff === 0 ? 0 : Math.floor(calculateDamage(beast.config.level, move.power, eff, stab) * 1.4); // légendaires redoutables
       if (damage > 0 && tm) {
         damage = Math.floor(damage * tm.evSpread.defMult);
         if (tm.item.effect === "assaultvest") damage = Math.floor(damage * 0.75);
@@ -90,14 +91,21 @@ export function BeastsBattle({ pseudo, player, onComplete }: { pseudo: string; p
       }
       if (newHP <= 0) {
         setLog(l => [...l, `${tm.pokemon.name.toUpperCase()} est K.O. !`]); await sleep(600);
-        const reserve = teamRef.current.findIndex((m, i) => !m.fainted && !activeSlots.includes(i));
-        if (reserve >= 0) { setActiveSlots(prev => prev.map(idx => idx === target.idx! ? reserve : idx)); setLog(l => [...l, `${teamRef.current[reserve].pokemon.name.toUpperCase()} entre en jeu !`]); await sleep(400); }
-        else setActiveSlots(prev => prev.map(idx => idx === target.idx! ? null : idx));
+        // utilise slotsNow (pas activeSlots stale) pour éviter les doublons
+        const reserve = teamRef.current.findIndex((m, i) => !m.fainted && !slotsNow.includes(i));
+        if (reserve >= 0) {
+          slotsNow = slotsNow.map(idx => idx === target.idx! ? reserve : idx);
+          setActiveSlots([...slotsNow]);
+          setLog(l => [...l, `${teamRef.current[reserve].pokemon.name.toUpperCase()} entre en jeu !`]); await sleep(400);
+        } else {
+          slotsNow = slotsNow.map(idx => idx === target.idx! ? null : idx);
+          setActiveSlots([...slotsNow]);
+        }
       }
     }
     // Check defeat after beasts attack
     const allDown1 = teamRef.current.every(m => m.fainted);
-    if (allDown1) { setLog(l => [...l, "Toute votre équipe est K.O. !"]); submitBeastsResult(pseudo, beastsRef.current.filter(b => b.defeated).length, false); await sleep(2000); setPhase("defeat"); return; }
+    if (allDown1) { setLog(l => [...l, "Toute votre équipe est K.O. !"]); submitBeastsResult(pseudo, beastsRef.current.filter(b => b.defeated).length, false); await sleep(2000); setPhase("defeat_scene"); return; }
 
     // ═══ PLAYER ATTACKS ═══
     setLog(l => [...l, "— Vos Pokémon ripostent ! —"]);
@@ -129,7 +137,7 @@ export function BeastsBattle({ pseudo, player, onComplete }: { pseudo: string; p
       await sleep(2000); setPhase("victory"); return;
     }
     const allDown2 = teamRef.current.every(m => m.fainted);
-    if (allDown2) { setLog(l => [...l, "Toute votre équipe est K.O. !"]); submitBeastsResult(pseudo, beastsRef.current.filter(b => b.defeated).length, false); await sleep(2000); setPhase("defeat"); return; }
+    if (allDown2) { setLog(l => [...l, "Toute votre équipe est K.O. !"]); submitBeastsResult(pseudo, beastsRef.current.filter(b => b.defeated).length, false); await sleep(2000); setPhase("defeat_scene"); return; }
 
     updateLiveBattle({ pseudo, pokemon: "beasts", battlePhase: "beasts", beastsDefeated: beastsRef.current.filter(b => b.defeated).length, lastAction: "Tour terminé", status: "in_battle" });
     startNewTurn();
@@ -149,6 +157,7 @@ export function BeastsBattle({ pseudo, player, onComplete }: { pseudo: string; p
   const musicEl = phase === "battle" || phase === "team_select" ? <MusicPlayer track="beasts" volume={25} /> : null;
 
   if (phase === "loading") return <>{audioEl}<div className="h-dvh w-full flex items-center justify-center" style={{ background: "radial-gradient(ellipse at 50% 30%, #1a0a2e, #0a0518)", fontFamily: "'Courier New', monospace" }}><p className="text-white/40 animate-pulse">Chargement…</p></div></>;
+  if (phase === "intro_scene") return <BeastsIntroScene pseudo={pseudo} onComplete={() => setPhase("builder")} />;
   if (phase === "builder") return <TeamBuilder
     team={team.map(m => ({ pokemon: m.pokemon, data: m.data, maxHP: m.maxHP }))}
     title="Prépare ton équipe — 3v3 Légendaires"
@@ -157,6 +166,7 @@ export function BeastsBattle({ pseudo, player, onComplete }: { pseudo: string; p
   />;
   if (phase === "team_select") return <>{audioEl}<TeamPicker team={team} onSelect={selectTeam} pseudo={pseudo} musicEnabled={musicEnabled} setMusicEnabled={setMusicEnabled} /></>;
   if (phase === "victory") return <>{audioEl}<EndScreen type="victory" pseudo={pseudo} defeated={3} onClose={() => onComplete(true, 3)} /></>;
+  if (phase === "defeat_scene") return <BeastsDefeatScene pseudo={pseudo} onComplete={() => onComplete(false, beastsDefeated)} />;
   if (phase === "defeat") return <>{audioEl}<EndScreen type="defeat" pseudo={pseudo} defeated={beastsDefeated} onClose={() => onComplete(false, beastsDefeated)} /></>;
 
   const queuedSlots = new Set(turnQueue.map(q => q.slotIdx));

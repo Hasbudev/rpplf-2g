@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { QUIZ_QUESTIONS, QUIZ_QUESTIONS_PER_GAME } from "../lib/battleSystem";
 import { QuizPassScene, QuizFailScene } from "./DialogueScene";
 import { submitQuizResult } from "../hooks/useEvent";
+import { MusicPlayer } from "./MusicPlayer";
 
 const QUIZ_TIME_SECONDS = 300;
 const KIMONO_SPRITE = "https://play.pokemonshowdown.com/sprites/trainers/kimonogirl.png";
@@ -18,11 +19,13 @@ const KIMONO_GIRLS = [
 ];
 
 export function QuizScreen({ pseudo, onComplete }: { pseudo: string; onComplete: (passed: boolean, score: number) => void }) {
-  // Tire 10 questions au hasard parmi les 40 — différent pour chaque joueur
+  const [quizKey, setQuizKey] = useState(0);
+  // Tire 8 questions au hasard parmi les 40 — reshufflé à chaque reset
   const questions = useMemo(() => {
     const shuffled = [...QUIZ_QUESTIONS].sort(() => Math.random() - 0.5);
     return shuffled.slice(0, QUIZ_QUESTIONS_PER_GAME);
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quizKey]);
   const [currentQ, setCurrentQ] = useState(0);
   const [score, setScore] = useState(0);
   const [answered, setAnswered] = useState<number | null>(null);
@@ -31,6 +34,7 @@ export function QuizScreen({ pseudo, onComplete }: { pseudo: string; onComplete:
   const [finished, setFinished] = useState(false);
   const [outro, setOutro] = useState<"pass" | "fail" | null>(null);
   const [finalScore, setFinalScore] = useState(0);
+  const [showWrongMsg, setShowWrongMsg] = useState(false);
 
   // Intro state
   const [intro, setIntro] = useState(true);
@@ -63,20 +67,35 @@ export function QuizScreen({ pseudo, onComplete }: { pseudo: string; onComplete:
     setTimeout(() => setOutro(passed ? "pass" : "fail"), 1500);
   }, [finished, pseudo, questions.length]);
 
+  const resetQuiz = useCallback(() => {
+    setCurrentQ(0);
+    setScore(0);
+    setAnswered(null);
+    setShowResult(false);
+    setShowWrongMsg(false);
+    setTimeLeft(QUIZ_TIME_SECONDS);
+    setQuizKey(k => k + 1);
+  }, []);
+
   const answer = useCallback((optionIdx: number) => {
     if (answered !== null || finished) return;
     setAnswered(optionIdx);
     const correct = optionIdx === questions[currentQ].correct;
     const newScore = correct ? score + 1 : score;
     if (correct) setScore(newScore);
+    if (!correct) setShowWrongMsg(true);
     setShowResult(true);
     setTimeout(() => {
-      setShowResult(false);
-      setAnswered(null);
-      if (currentQ + 1 >= questions.length) finishQuiz(newScore);
-      else setCurrentQ(q => q + 1);
-    }, 1800);
-  }, [answered, currentQ, questions, score, finished, finishQuiz]);
+      if (!correct) {
+        resetQuiz();
+      } else {
+        setShowResult(false);
+        setAnswered(null);
+        if (currentQ + 1 >= questions.length) finishQuiz(newScore);
+        else setCurrentQ(q => q + 1);
+      }
+    }, 2200);
+  }, [answered, currentQ, questions, score, finished, finishQuiz, resetQuiz]);
 
   const timerStr = `${String(Math.floor(timeLeft / 60)).padStart(2, "0")}:${String(timeLeft % 60).padStart(2, "0")}`;
   const girl = KIMONO_GIRLS[currentQ % KIMONO_GIRLS.length];
@@ -98,6 +117,7 @@ export function QuizScreen({ pseudo, onComplete }: { pseudo: string; onComplete:
     return (
       <div className="h-dvh w-full flex items-center justify-center overflow-hidden relative"
         style={{ background: "radial-gradient(ellipse at 50% 30%, #2d1208 0%, #1a0800 40%, #0a0400 100%)", fontFamily: "'Courier New', monospace" }}>
+        <MusicPlayer track="quiz" />
         <SacredFireBG count={30} />
 
         {/* Ambient temple glow */}
@@ -114,7 +134,7 @@ export function QuizScreen({ pseudo, onComplete }: { pseudo: string; onComplete:
                   style={{ backgroundImage: "linear-gradient(135deg, #fef3c7, #f59e0b, #dc2626)" }}>
                   Le Quiz Sacré
                 </h1>
-                <p className="text-amber-200/30 text-sm mt-4">10 questions · {8} bonnes réponses pour passer</p>
+                <p className="text-amber-200/30 text-sm mt-4">8 questions · {8} bonnes réponses pour passer</p>
                 <p className="text-amber-200/20 text-xs mt-6">« Les Danseuses de Rosalia vont tester ta connaissance… »</p>
               </motion.div>
             )}
@@ -235,6 +255,7 @@ export function QuizScreen({ pseudo, onComplete }: { pseudo: string; onComplete:
         background: `radial-gradient(ellipse at 50% 20%, ${girl.bgColor} 0%, #1a0800 50%, #0a0400 100%)`,
         fontFamily: "'Courier New', monospace",
       }}>
+      <MusicPlayer track="quiz" />
       <SacredFireBG count={18} />
 
       {/* Ecruteak ambient — temple silhouette hint */}
@@ -334,7 +355,7 @@ export function QuizScreen({ pseudo, onComplete }: { pseudo: string; onComplete:
                 let bg = "#f8f0e0";
                 let borderColor = "#000";
                 if (showResult) {
-                  if (isCorrect) { bg = "#bbf7d0"; borderColor = "#16a34a"; }
+                  if (isCorrect && isSelected) { bg = "#bbf7d0"; borderColor = "#16a34a"; }
                   else if (isSelected && !isCorrect) { bg = "#fecaca"; borderColor = "#dc2626"; }
                 }
                 return (
@@ -348,7 +369,7 @@ export function QuizScreen({ pseudo, onComplete }: { pseudo: string; onComplete:
                     }}>
                     <span className="text-gray-500 mr-2">{String.fromCharCode(65 + i)}.</span>
                     {opt}
-                    {showResult && isCorrect && <span className="ml-2 text-green-600">✓</span>}
+                    {showResult && isCorrect && isSelected && <span className="ml-2 text-green-600">✓</span>}
                     {showResult && isSelected && !isCorrect && <span className="ml-2 text-red-600">✗</span>}
                   </motion.button>
                 );
@@ -362,6 +383,35 @@ export function QuizScreen({ pseudo, onComplete }: { pseudo: string; onComplete:
       <div className="relative z-10 p-3 text-center">
         <p className="text-[10px] text-amber-300/15">{pseudo} · Quiz des Kimono</p>
       </div>
+
+      {/* Wrong answer dialogue */}
+      <AnimatePresence>
+        {showWrongMsg && (
+          <motion.div
+            className="fixed inset-0 z-50 flex items-center justify-center"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <div className="absolute inset-0 bg-black/60" />
+            <motion.div
+              initial={{ scale: 0.85, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.85, y: 20 }}
+              className="relative border-4 border-red-600 p-6 max-w-xs text-center"
+              style={{ background: "#1a0000", boxShadow: "6px 6px 0 #000, 0 0 40px rgba(220,38,38,0.5)", fontFamily: "'Courier New', monospace" }}
+            >
+              <div className="text-4xl mb-4">⛩️</div>
+              <p className="text-red-400 font-black text-sm leading-relaxed mb-2">
+                « Tu n'as pas le droit à la moindre faute ! »
+              </p>
+              <p className="text-red-300/50 text-xs leading-relaxed">
+                Les Danseuses Kimono exigent la perfection.<br />Une seule erreur souille l'épreuve sacrée.
+              </p>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

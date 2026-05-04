@@ -279,37 +279,37 @@ export const SUICUNE_MOVES: Move[] = [
 
 export const BEAST_CONFIGS: BeastConfig[] = [
   {
-    name: "raikou", displayName: "RAIKOU", level: 120, maxHP: 346,
+    name: "raikou", displayName: "RAIKOU", level: 120, maxHP: 520,
     types: ["Électrik"],
     moves: [
-      { name: "Tonnerre",     power: 90, type: "Électrik", effect: "paralysis", effectChance: 0.3 },
-      { name: "Crocs Éclair", power: 65, type: "Électrik", effect: "paralysis", effectChance: 0.2 },
-      { name: "Cage-Éclair",  power: 0,  type: "Électrik", effect: "paralysis", effectChance: 1.0 },
-      { name: "Ébullition",   power: 80, type: "Eau",      effect: "burn",      effectChance: 0.3 },
+      { name: "Tonnerre",     power: 95,  type: "Électrik", effect: "paralysis", effectChance: 0.35 },
+      { name: "Crocs Éclair", power: 70,  type: "Électrik", effect: "paralysis", effectChance: 0.25 },
+      { name: "Cage-Éclair",  power: 0,   type: "Électrik", effect: "paralysis", effectChance: 1.0  },
+      { name: "Ébullition",   power: 85,  type: "Eau",      effect: "burn",      effectChance: 0.35 },
     ],
     sprite: "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/showdown/243.gif",
     color: "#fbbf24", glowColor: "rgba(251, 191, 36, 0.5)",
   },
   {
-    name: "entei", displayName: "ENTEI", level: 120, maxHP: 406,
+    name: "entei", displayName: "ENTEI", level: 120, maxHP: 610,
     types: ["Feu"],
     moves: [
-      { name: "Feu Sacré",     power: 95, type: "Feu", effect: "burn", effectChance: 0.5 },
-      { name: "Lance-Flammes", power: 90, type: "Feu", effect: "burn", effectChance: 0.1 },
-      { name: "Piétisol",      power: 60, type: "Sol" },
-      { name: "Crocs Feu",     power: 65, type: "Feu", effect: "burn", effectChance: 0.1 },
+      { name: "Feu Sacré",     power: 100, type: "Feu", effect: "burn", effectChance: 0.55 },
+      { name: "Lance-Flammes", power: 90,  type: "Feu", effect: "burn", effectChance: 0.15 },
+      { name: "Piétisol",      power: 70,  type: "Sol" },
+      { name: "Crocs Feu",     power: 70,  type: "Feu", effect: "burn", effectChance: 0.15 },
     ],
     sprite: "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/showdown/244.gif",
     color: "#ef4444", glowColor: "rgba(239, 68, 68, 0.5)",
   },
   {
-    name: "suicune", displayName: "SUICUNE", level: 120, maxHP: 370,
+    name: "suicune", displayName: "SUICUNE", level: 120, maxHP: 555,
     types: ["Eau"],
     moves: [
-      { name: "Hydrocanon",   power: 110, type: "Eau" },
-      { name: "Laser Glace",  power: 90,  type: "Glace", effect: "freeze", effectChance: 0.1 },
-      { name: "Vent Arrière", power: 0,   type: "Vol" },
-      { name: "Surf",         power: 90,  type: "Eau" },
+      { name: "Hydrocanon",   power: 115, type: "Eau" },
+      { name: "Laser Glace",  power: 90,  type: "Glace", effect: "freeze", effectChance: 0.12 },
+      { name: "Tranche",      power: 60,  type: "Normal" },
+      { name: "Surf",         power: 95,  type: "Eau" },
     ],
     sprite: "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/showdown/245.gif",
     color: "#38bdf8", glowColor: "rgba(56, 189, 248, 0.5)",
@@ -613,8 +613,8 @@ export const QUIZ_QUESTIONS: QuizQuestion[] = [
   },
 ];
 
-// 10 questions tirées au hasard parmi les 41 — différentes pour chaque joueur
-export const QUIZ_QUESTIONS_PER_GAME = 10;
+// 8 questions tirées au hasard parmi les 40 — différentes pour chaque joueur
+export const QUIZ_QUESTIONS_PER_GAME = 8;
 
 // 7 bonnes réponses sur 10 pour passer
 export const QUIZ_PASS_THRESHOLD = 7;

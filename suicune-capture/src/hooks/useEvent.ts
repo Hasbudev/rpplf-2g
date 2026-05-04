@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { doc, onSnapshot, collection, query, where, getDocs } from "firebase/firestore";
+import { doc, onSnapshot, collection, query, where, getDocs, setDoc } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { db, functions } from "../lib/firebase";
 
@@ -189,6 +189,12 @@ export async function submitBeastsResult(pseudo: string, defeated: number, passe
     const fn = httpsCallable(functions, "submitBeastsResult");
     await fn({ pseudo, deviceId: getDeviceId(), defeated, passed });
   } catch (err) { console.error("Beasts result error:", err); }
+}
+
+export async function resetBossProgress(): Promise<void> {
+  try {
+    await setDoc(doc(db, "eventProgress", getDeviceId()), { quizPassed: false, beastsPassed: false }, { merge: true });
+  } catch (err) { console.error("Reset progress error:", err); }
 }
 
 export interface PlayerProgress {

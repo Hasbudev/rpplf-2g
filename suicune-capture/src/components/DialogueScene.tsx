@@ -581,6 +581,56 @@ export function BeastsIntroScene({ pseudo, onComplete }: {
 }
 
 /* ════════════════════════════════════════════════
+   BEASTS DEFEAT SCENE — recommencer depuis le quiz
+   ════════════════════════════════════════════════ */
+export function BeastsDefeatScene({ pseudo, onComplete }: {
+  pseudo: string; onComplete: () => void;
+}) {
+  const lines: DialogueLine[] = [
+    {
+      speaker: "ENTEI",
+      text: "Tu n'étais pas prêt, Dresseur.",
+      sceneSprite: SPRITES.entei,
+      sceneSpriteSize: "min(270px,54vw)",
+      sceneSpriteFilter: "drop-shadow(0 0 40px rgba(239,68,68,0.9)) brightness(1.2)",
+      sceneSpritePos: "center",
+      color: "#ef4444",
+      particles: "fire",
+      bgGradient: "radial-gradient(ellipse at 50% 30%, #2a0500 0%, #150200 50%, #000 100%)",
+      speed: 28,
+      sceneSpriteAnim: "float",
+    },
+    {
+      speaker: "RAIKOU",
+      text: "Ce sanctuaire n'appartient qu'aux plus forts. Repars et instruis-toi.",
+      sceneSprite: SPRITES.raikou,
+      sceneSpriteSize: "min(270px,54vw)",
+      sceneSpriteFilter: "drop-shadow(0 0 40px rgba(251,191,36,0.9)) brightness(1.2)",
+      sceneSpritePos: "center",
+      color: "#fbbf24",
+      particles: "electric",
+      bgGradient: "radial-gradient(ellipse at 50% 30%, #1a1400 0%, #0a0900 50%, #000 100%)",
+      speed: 26,
+      sceneSpriteAnim: "float",
+    },
+    {
+      speaker: "SUICUNE",
+      text: `${pseudo}… Les Danseuses Kimono t'attendent à nouveau. Prouve-toi. Reviens.`,
+      sceneSprite: SPRITES.suicune,
+      sceneSpriteSize: "min(270px,54vw)",
+      sceneSpriteFilter: "drop-shadow(0 0 40px rgba(56,189,248,0.9)) brightness(1.2)",
+      sceneSpritePos: "center",
+      color: "#38bdf8",
+      particles: "water",
+      bgGradient: "radial-gradient(ellipse at 50% 30%, #050f1a 0%, #020a12 50%, #000 100%)",
+      speed: 22,
+      sceneSpriteAnim: "float",
+    },
+  ];
+  return <DialogueScene lines={lines} onComplete={onComplete} skipable={true} defaultBg="radial-gradient(ellipse at 50% 30%, #0a0000, #000)" />;
+}
+
+/* ════════════════════════════════════════════════
    BEASTS VICTORY SCENE
    ════════════════════════════════════════════════ */
 export function BeastsVictoryScene({ pseudo, onComplete }: {
@@ -849,4 +899,71 @@ export function HoOhDivineScene({ onComplete }: { onComplete: () => void }) {
   ];
 
   return <DialogueScene lines={lines} onComplete={onComplete} skipable={false} defaultBg="linear-gradient(180deg, #000, #0a0800)" />;
+}
+
+/* ════════════════════════════════════════════════
+   HO-OH VICTORY SCENE — avant les crédits
+   ════════════════════════════════════════════════ */
+export function HoOhVictoryScene({ pseudo, onComplete }: {
+  pseudo: string; onComplete: () => void;
+}) {
+  const lines: DialogueLine[] = [
+    {
+      speaker: "HO-OH",
+      text: "…",
+      sceneSprite: SPRITES.hoohShiny,
+      sceneSpriteSize: "min(280px,56vw)",
+      sceneSpriteFilter: "drop-shadow(0 0 60px rgba(255,220,0,0.9)) brightness(1.3) saturate(1.8)",
+      sceneSpritePos: "center",
+      color: "#fbbf24",
+      particles: "divine",
+      bgGradient: "radial-gradient(ellipse at 50% 20%, #1a1400 0%, #0a0800 50%, #000 100%)",
+      speed: 80,
+      pause: 2000,
+      sceneSpriteAnim: "float",
+    },
+    {
+      speaker: "HO-OH",
+      text: `${pseudo}… Tu as accompli ce qu'aucun Dresseur n'avait réussi depuis une éternité.`,
+      sceneSprite: SPRITES.hoohShiny,
+      sceneSpriteSize: "min(290px,58vw)",
+      sceneSpriteFilter: "drop-shadow(0 0 80px rgba(255,220,0,1)) brightness(1.5) saturate(2)",
+      sceneSpritePos: "center",
+      color: "#fbbf24",
+      particles: "divine",
+      bgGradient: "radial-gradient(ellipse at 50% 20%, #2a2000 0%, #1a1400 50%, #000 100%)",
+      speed: 22,
+      sceneSpriteAnim: "pulse",
+    },
+    {
+      speaker: "HO-OH",
+      text: "Le Trio Légendaire a reconnu ta force. Et moi… je reconnais ton âme.",
+      sceneSprite: SPRITES.hoohShiny,
+      sceneSpriteSize: "min(290px,58vw)",
+      sceneSpriteFilter: "drop-shadow(0 0 80px rgba(255,220,0,1)) brightness(1.6) saturate(2.5)",
+      sceneSpritePos: "center",
+      color: "#f59e0b",
+      particles: "divine",
+      bgGradient: "radial-gradient(ellipse at 50% 20%, #2a2000 0%, #1a1400 50%, #000 100%)",
+      speed: 24,
+      sceneSpriteAnim: "float",
+    },
+    {
+      speaker: "HO-OH",
+      text: `Que le nom de ${pseudo} résonne dans les annales de la Ligue RPPLF, pour les siècles à venir.`,
+      sceneSprite: SPRITES.hoohShiny,
+      sceneSpriteSize: "min(310px,62vw)",
+      sceneSpriteFilter: "drop-shadow(0 0 100px rgba(255,220,0,1)) brightness(1.9) saturate(3)",
+      sceneSpritePos: "center",
+      color: "#fbbf24",
+      particles: "divine",
+      bgGradient: "radial-gradient(ellipse at 50% 10%, #3a2a00 0%, #2a1a00 50%, #0a0500 100%)",
+      speed: 20,
+      shake: true,
+      flash: "rgba(255,220,0,0.35)",
+      sceneSpriteAnim: "roar",
+    },
+  ];
+
+  return <DialogueScene lines={lines} onComplete={onComplete} skipable={true} defaultBg="radial-gradient(ellipse at 50% 30%, #1a1200, #000)" />;
 }

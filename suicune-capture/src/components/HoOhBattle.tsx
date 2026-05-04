@@ -11,7 +11,7 @@ import {
 } from "../lib/battleSystem";
 import { TeamBuilder, type TeamMemberConfig } from "./TeamBuilder";
 import { updateLiveBattle } from "../hooks/useEvent";
-import { HoOhIntroScene, HoOhRageScene, HoOhDivineScene } from "./DialogueScene";
+import { HoOhIntroScene, HoOhRageScene, HoOhDivineScene, HoOhVictoryScene } from "./DialogueScene";
 import type { Player, PlayerPokemon } from "../lib/playerRoster";
 
 /* ═══════════════════════════════════════════════
@@ -91,7 +91,7 @@ const CAPTURE_REQS     = { // % thresholds for capture rates
 };
 
 // ── Types ────────────────────────────────────────────────────────────
-type Phase = "loading" | "builder" | "team_select" | "hooh_intro" | "battle" | "switch" | "rage_scene" | "divine_scene" | "victory" | "defeat" | "fled";
+type Phase = "loading" | "builder" | "team_select" | "hooh_intro" | "battle" | "switch" | "rage_scene" | "divine_scene" | "victory_scene" | "victory" | "defeat" | "fled";
 
 interface TeamMember {
   pokemon: PlayerPokemon;
@@ -537,7 +537,7 @@ export function HoOhBattle({
       setBoss(prev => ({ ...prev, log: [...prev.log, "HO-OH A ÉTÉ CAPTURÉ !!!"] }));
       updateLiveBattle({ pseudo, pokemon: "ho-oh", status: "victory", battlePhase: "hooh", lastAction: "HO-OH CAPTURÉ !" });
       await sleep(2500);
-      setPhase("victory"); return;
+      setPhase("victory_scene"); return;
     }
 
     setBallAnim("fail");
@@ -596,9 +596,10 @@ export function HoOhBattle({
     <SwitchSelect team={team} onSelect={switchPoke} />
   );
 
-  if (phase === "victory") return <ResultScreen type="victory" pseudo={pseudo} onClose={() => onComplete(true)} />;
+  if (phase === "victory_scene") return <HoOhVictoryScene pseudo={pseudo} onComplete={() => onComplete(true)} />;
+  if (phase === "victory") return <ResultScreen type="victory" pseudo={pseudo} onClose={() => setPhase("victory_scene")} />;
   if (phase === "defeat")  return <ResultScreen type="defeat"  pseudo={pseudo} onClose={() => onComplete(false)} />;
-  if (phase === "fled")    return <ResultScreen type="fled"    pseudo={pseudo} onClose={() => onComplete(true)} />;
+  if (phase === "fled")    return <ResultScreen type="fled"    pseudo={pseudo} onClose={() => setPhase("victory_scene")} />;
 
   const active = team[activeIdx];
   if (!active) return null;
