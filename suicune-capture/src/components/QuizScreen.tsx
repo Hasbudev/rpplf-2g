@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { QUIZ_QUESTIONS, QUIZ_PASS_THRESHOLD, QUIZ_QUESTIONS_PER_GAME } from "../lib/battleSystem";
+import { QUIZ_QUESTIONS, QUIZ_QUESTIONS_PER_GAME } from "../lib/battleSystem";
 import { QuizPassScene, QuizFailScene } from "./DialogueScene";
 import { submitQuizResult } from "../hooks/useEvent";
 
@@ -31,7 +31,6 @@ export function QuizScreen({ pseudo, onComplete }: { pseudo: string; onComplete:
   const [finished, setFinished] = useState(false);
   const [outro, setOutro] = useState<"pass" | "fail" | null>(null);
   const [finalScore, setFinalScore] = useState(0);
-  const [passedResult, setPassedResult] = useState(false);
 
   // Intro state
   const [intro, setIntro] = useState(true);
@@ -57,9 +56,9 @@ export function QuizScreen({ pseudo, onComplete }: { pseudo: string; onComplete:
   const finishQuiz = useCallback((finalScore: number) => {
     if (finished) return;
     setFinished(true);
-    const passed = finalScore >= QUIZ_PASS_THRESHOLD;
+    const passed = finalScore >= 8;
+    submitQuizResult(pseudo, finalScore, questions.length, passed);
     setFinalScore(finalScore);
-    setPassedResult(passed); // store result — Firestore written only after dialogue
     // Affiche la cutscène — onComplete sera appelé à la fin de la scène
     setTimeout(() => setOutro(passed ? "pass" : "fail"), 1500);
   }, [finished, pseudo, questions.length]);
@@ -85,19 +84,11 @@ export function QuizScreen({ pseudo, onComplete }: { pseudo: string; onComplete:
 
   if (outro === "pass") return (
     <QuizPassScene pseudo={pseudo} score={finalScore} total={questions.length}
-      onComplete={() => {
-        // Write to Firestore NOW — after dialogue is done
-        // This triggers BossEventFlow routing to "beasts"
-        submitQuizResult(pseudo, finalScore, questions.length, true);
-        onComplete(true, finalScore);
-      }} />
+      onComplete={() => onComplete(true, finalScore)} />
   );
   if (outro === "fail") return (
     <QuizFailScene pseudo={pseudo} score={finalScore} total={questions.length}
-      onComplete={() => {
-        submitQuizResult(pseudo, finalScore, questions.length, false);
-        onComplete(false, finalScore);
-      }} />
+      onComplete={() => onComplete(false, finalScore)} />
   );
 
   /* ═══════════════════════════════════════════════
@@ -123,7 +114,7 @@ export function QuizScreen({ pseudo, onComplete }: { pseudo: string; onComplete:
                   style={{ backgroundImage: "linear-gradient(135deg, #fef3c7, #f59e0b, #dc2626)" }}>
                   Le Quiz Sacré
                 </h1>
-                <p className="text-amber-200/30 text-sm mt-4">10 questions · {QUIZ_PASS_THRESHOLD} bonnes réponses pour passer</p>
+                <p className="text-amber-200/30 text-sm mt-4">10 questions · {8} bonnes réponses pour passer</p>
                 <p className="text-amber-200/20 text-xs mt-6">« Les Danseuses de Rosalia vont tester ta connaissance… »</p>
               </motion.div>
             )}
@@ -204,7 +195,7 @@ export function QuizScreen({ pseudo, onComplete }: { pseudo: string; onComplete:
      FINISHED SCREEN
      ═══════════════════════════════════════════════ */
   if (finished) {
-    const passed = score >= QUIZ_PASS_THRESHOLD;
+    const passed = score >= 8;
     return (
       <div className="h-dvh w-full flex items-center justify-center overflow-hidden relative"
         style={{ background: "radial-gradient(ellipse at 50% 30%, #2d1208 0%, #0a0400 100%)", fontFamily: "'Courier New', monospace" }}>
@@ -218,7 +209,7 @@ export function QuizScreen({ pseudo, onComplete }: { pseudo: string; onComplete:
           </h2>
           <p className="text-sm text-gray-700 mb-2">Score : <strong>{score}/{questions.length}</strong></p>
           <p className="text-xs text-gray-500 mb-4">
-            {passed ? "Les Danseuses Kimono t'acceptent !" : `Il fallait ${QUIZ_PASS_THRESHOLD} bonnes réponses.`}
+            {passed ? "Les Danseuses Kimono t'acceptent !" : `Il fallait ${8} bonnes réponses.`}
           </p>
           {passed && (
             <div className="flex justify-center gap-1 mb-4">
@@ -260,7 +251,7 @@ export function QuizScreen({ pseudo, onComplete }: { pseudo: string; onComplete:
             <span className="text-[10px] font-bold" style={{ color: timeLeft < 60 ? "#ef4444" : "#000" }}>⏱ {timerStr}</span>
           </div>
           <div className="bg-[#f8f0e0] border-[3px] border-black px-3 py-1.5" style={{ boxShadow: "3px 3px 0 #000" }}>
-            <span className="text-[10px] font-bold text-amber-600">★ {score}/{QUIZ_PASS_THRESHOLD}</span>
+            <span className="text-[10px] font-bold text-amber-600">★ {score}/{8}</span>
           </div>
         </div>
       </div>
@@ -269,15 +260,15 @@ export function QuizScreen({ pseudo, onComplete }: { pseudo: string; onComplete:
       <div className="relative z-10 px-4 mb-1">
         <div className="h-2 bg-black/30 rounded-full overflow-hidden border border-amber-400/20">
           <motion.div className="h-full rounded-full"
-            animate={{ width: `${Math.min(100, (score / QUIZ_PASS_THRESHOLD) * 100)}%` }}
+            animate={{ width: `${Math.min(100, (score / 8) * 100)}%` }}
             style={{
-              background: score >= QUIZ_PASS_THRESHOLD
+              background: score >= 8
                 ? "linear-gradient(90deg, #22c55e, #4ade80)"
                 : "linear-gradient(90deg, #f59e0b, #fbbf24)",
             }} />
         </div>
         <div className="flex justify-between mt-0.5">
-          <span className="text-[8px] text-amber-300/25">{score}/{QUIZ_PASS_THRESHOLD} pour passer</span>
+          <span className="text-[8px] text-amber-300/25">{score}/{8} pour passer</span>
           <span className="text-[8px]" style={{ color: girl.color }}>⚡ {girl.name}</span>
         </div>
       </div>
@@ -337,7 +328,7 @@ export function QuizScreen({ pseudo, onComplete }: { pseudo: string; onComplete:
 
             {/* Answer options */}
             <div className="grid grid-cols-1 gap-2.5">
-              {q.options.map((opt, i) => {
+              {q.options.map((opt: string, i: number) => {
                 const isCorrect = i === q.correct;
                 const isSelected = answered === i;
                 let bg = "#f8f0e0";

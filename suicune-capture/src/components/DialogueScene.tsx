@@ -11,6 +11,7 @@ import { motion, AnimatePresence } from "framer-motion";
 export interface DialogueLine {
   speaker: string;
   text: string;
+  portraitEmoji?: string;  // emoji fallback quand pas de sprite
   // Sprite principal affiché dans la scène (grand, centré)
   sceneSprite?: string;
   sceneSpriteSize?: string;       // ex: "min(280px,55vw)"

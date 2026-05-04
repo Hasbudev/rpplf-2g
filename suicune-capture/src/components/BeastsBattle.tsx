@@ -5,7 +5,7 @@ import { fetchPokemonData, type PokemonData } from "../lib/pokeApi";
 import { calculateDamage, calculateMaxHP, getEffectiveness, pickMovesForPokemon, canMoveWithParalysis, burnDamage, TYPE_COLORS, BEAST_CONFIGS, ITEMS, EV_SPREADS, type Move, type PokemonType, type StatusState, type Item, type EVSpread } from "../lib/battleSystem";
 import { TeamBuilder, type TeamMemberConfig, type TeamBuilderMember } from "./TeamBuilder";
 import { updateLiveBattle, submitBeastsResult } from "../hooks/useEvent";
-import { BeastsIntroScene, BeastsVictoryScene } from "./DialogueScene";
+import { MusicPlayer } from "./MusicPlayer";
 import type { Player, PlayerPokemon } from "../lib/playerRoster";
 
 const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
@@ -25,44 +25,15 @@ export function BeastsBattle({ pseudo, player, onComplete }: { pseudo: string; p
   const [pickingMove, setPickingMove] = useState<number|null>(null);
   const [beasts, setBeasts] = useState<BeastState[]>(BEAST_CONFIGS.map(c => ({ config: c, hp: c.maxHP, maxHP: c.maxHP, status: { status: null }, defeated: false })));
   const beastsRef = useRef(beasts); useEffect(() => { beastsRef.current = beasts; }, [beasts]);
-  const activeSlotsRef = useRef<(number|null)[]>([null,null,null]);
-  useEffect(() => { activeSlotsRef.current = activeSlots; }, [activeSlots]);
   const [log, setLog] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [musicEnabled, setMusicEnabled] = useState(true);
   const audioRef = useRef<HTMLAudioElement|null>(null);
 
   useEffect(() => { const a = audioRef.current; if (!a) return; if ((phase==="battle"||phase==="team_select")&&musicEnabled) { a.volume=.25; a.loop=true; a.play().catch(()=>{}); } else a.pause(); }, [phase, musicEnabled]);
-  useEffect(() => { (async () => { const td: TeamMember[] = []; for (const p of player.team) { const data = await fetchPokemonData(p.name); if (data) { const p100 = { ...p, level: 100 }; const maxHP = calculateMaxHP(100, data.baseHP); td.push({ pokemon: p100, data, currentHP: maxHP, maxHP, fainted: false, moves: pickMovesForPokemon(data.types), status: { status: null }, item: ITEMS[0], evSpread: EV_SPREADS[0], itemUsed: false }); } } setTeam(td); setPhase("intro_scene"); })(); }, [player]);
+  useEffect(() => { (async () => { const td: TeamMember[] = []; for (const p of player.team) { const data = await fetchPokemonData(p.name); if (data) { const p100 = {...p, level: 100}; const maxHP = calculateMaxHP(100, data.baseHP); td.push({ pokemon: p100, data, currentHP: maxHP, maxHP, fainted: false, moves: pickMovesForPokemon(data.types), status: { status: null }, item: ITEMS[0], evSpread: EV_SPREADS[0], itemUsed: false }); } } setTeam(td); setPhase("intro_scene"); })(); }, [player]);
 
   const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
-
-  // Helper — envoie l'état du combat en live au panel admin
-  const sendLiveUpdate = useCallback((lastAction: string, status: "in_battle"|"victory"|"defeat" = "in_battle") => {
-    const bs = beastsRef.current;
-    const tm = teamRef.current;
-    // Beast avec le moins de HP (pas encore vaincu) = le plus intéressant à montrer
-    const activeBeast = bs.find(b => !b.defeated) ?? bs[0];
-    // Pokémon joueur actif (premier non K.O.)
-    const activePlayer = tm.find(m => !m.fainted);
-    updateLiveBattle({
-      pseudo,
-      pokemon: "beasts",
-      battlePhase: "beasts",
-      status,
-      currentBeast: activeBeast?.config.name ?? null,
-      raikouHP: activeBeast?.hp ?? 0,
-      raikouMaxHP: activeBeast?.maxHP ?? 1,
-      currentPokemon: activePlayer?.pokemon.name ?? null,
-      currentPokemonHP: activePlayer?.currentHP ?? 0,
-      currentPokemonMaxHP: activePlayer?.maxHP ?? 1,
-      beastsDefeated: bs.filter(b => b.defeated).length,
-      lastAction,
-      log: [lastAction],
-    });
-  }, [pseudo]);
-
-
   const aliveActiveSlots = useMemo(() => activeSlots.map((idx, si) => ({ si, idx })).filter(({ idx }) => idx !== null && team[idx!] && !team[idx!].fainted), [activeSlots, team]);
   const beastsDefeated = useMemo(() => beasts.filter(b => b.defeated).length, [beasts]);
 
@@ -70,7 +41,6 @@ export function BeastsBattle({ pseudo, player, onComplete }: { pseudo: string; p
     setActiveSlots([indices[0]??null, indices[1]??null, indices[2]??null]);
     setLog(["Le Trio Légendaire apparaît !", "Chacun de vos Pokémon doit choisir une action !"]);
     setPhase("battle"); setBusy(false); setTurnQueue([]); setPickingSlot(null); setPickingMove(null);
-    setTimeout(() => sendLiveUpdate("Combat 3v3 commencé !"), 500);
   }, []);
 
   const startNewTurn = useCallback(() => { setTurnQueue([]); setPickingSlot(null); setPickingMove(null); setBusy(false); setLog(l => [...l, "Choisissez les actions de vos Pokémon !"]); }, []);
@@ -92,16 +62,21 @@ export function BeastsBattle({ pseudo, player, onComplete }: { pseudo: string; p
       const target = targets[Math.floor(Math.random() * targets.length)];
       const tm = teamRef.current[target.idx!]; if (!tm) continue;
       const moves = beast.config.moves.filter(m => m.power > 0);
-      const move = moves[Math.floor(Math.random() * moves.length)] || beast.config.moves[0];
+      // Smart AI: avoid immune matchups, prefer super-effective moves
+      const validMoves = moves.filter(m => getEffectiveness(m.type, tm.data.types) > 0);
+      const superEffMoves = validMoves.filter(m => getEffectiveness(m.type, tm.data.types) > 1);
+      const movesToUse = superEffMoves.length > 0 && Math.random() < 0.7
+        ? superEffMoves  // 70% chance to use super-effective if available
+        : validMoves.length > 0 ? validMoves : moves;
+      const move = movesToUse[Math.floor(Math.random() * movesToUse.length)] || beast.config.moves[0];
       const eff = getEffectiveness(move.type, tm.data.types);
       const stab = beast.config.types.includes(move.type);
-      let damage = eff === 0 ? 0 : calculateDamage(beast.config.level, move.power, eff, stab);
+      let damage = eff === 0 ? 0 : Math.floor(calculateDamage(beast.config.level, move.power, eff, stab) * 1.3); // +30% harder
       if (damage > 0 && tm) {
         damage = Math.floor(damage * tm.evSpread.defMult);
         if (tm.item.effect === "assaultvest") damage = Math.floor(damage * 0.75);
       }
       setLog(l => [...l, `${beast.config.displayName} → ${move.name} sur ${tm.pokemon.name.toUpperCase()} !`]);
-      sendLiveUpdate(`${beast.config.displayName} → ${move.name}`);
       await sleep(500);
       if (eff === 0) { setLog(l => [...l, "Ça n'affecte pas !"]); await sleep(400); continue; }
       const effMsg = eff > 1 ? " Super efficace !" : eff < 1 ? " Pas très efficace…" : "";
@@ -115,25 +90,14 @@ export function BeastsBattle({ pseudo, player, onComplete }: { pseudo: string; p
       }
       if (newHP <= 0) {
         setLog(l => [...l, `${tm.pokemon.name.toUpperCase()} est K.O. !`]); await sleep(600);
-        // Use ref to get current activeSlots — prevents assigning same pokemon to multiple slots
-        const currentSlots = activeSlotsRef.current;
-        const reserve = teamRef.current.findIndex((m, i) => !m.fainted && !currentSlots.includes(i));
-        if (reserve >= 0) {
-          const newSlots = currentSlots.map(idx => idx === target.idx! ? reserve : idx);
-          activeSlotsRef.current = newSlots; // update ref immediately
-          setActiveSlots(newSlots);
-          setLog(l => [...l, `${teamRef.current[reserve].pokemon.name.toUpperCase()} entre en jeu !`]);
-          await sleep(400);
-        } else {
-          const newSlots = currentSlots.map(idx => idx === target.idx! ? null : idx);
-          activeSlotsRef.current = newSlots;
-          setActiveSlots(newSlots);
-        }
+        const reserve = teamRef.current.findIndex((m, i) => !m.fainted && !activeSlots.includes(i));
+        if (reserve >= 0) { setActiveSlots(prev => prev.map(idx => idx === target.idx! ? reserve : idx)); setLog(l => [...l, `${teamRef.current[reserve].pokemon.name.toUpperCase()} entre en jeu !`]); await sleep(400); }
+        else setActiveSlots(prev => prev.map(idx => idx === target.idx! ? null : idx));
       }
     }
     // Check defeat after beasts attack
     const allDown1 = teamRef.current.every(m => m.fainted);
-    if (allDown1) { setLog(l => [...l, "Toute votre équipe est K.O. !"]); sendLiveUpdate("Équipe K.O.", "defeat"); submitBeastsResult(pseudo, beastsRef.current.filter(b => b.defeated).length, false); await sleep(2000); setPhase("defeat"); return; }
+    if (allDown1) { setLog(l => [...l, "Toute votre équipe est K.O. !"]); submitBeastsResult(pseudo, beastsRef.current.filter(b => b.defeated).length, false); await sleep(2000); setPhase("defeat"); return; }
 
     // ═══ PLAYER ATTACKS ═══
     setLog(l => [...l, "— Vos Pokémon ripostent ! —"]);
@@ -149,7 +113,6 @@ export function BeastsBattle({ pseudo, player, onComplete }: { pseudo: string; p
       const eff = getEffectiveness(move.type, tb.config.types);
       const damage = eff === 0 ? 0 : calculateDamage(attacker.pokemon.level, move.power, eff, stab);
       setLog(l => [...l, `${attacker.pokemon.name.toUpperCase()} → ${move.name} sur ${tb.config.displayName} !`]);
-      sendLiveUpdate(`${attacker.pokemon.name} → ${move.name} sur ${tb.config.displayName}`);
       await sleep(500);
       if (eff === 0) { setLog(l => [...l, "Ça n'affecte pas !"]); await sleep(400); continue; }
       const effMsg = eff > 1 ? " Super efficace !" : eff < 1 ? " Pas très efficace…" : "";
@@ -161,18 +124,18 @@ export function BeastsBattle({ pseudo, player, onComplete }: { pseudo: string; p
     }
 
     if (beastsRef.current.every(b => b.defeated)) {
-      setLog(l => [...l, "Le Trio Légendaire est vaincu !"]);
-      sendLiveUpdate("Trio Légendaire vaincu !", "victory");
-      await sleep(2000); setPhase("victory_scene"); return;
+      setLog(l => [...l, "Le Trio Légendaire est vaincu !"]); submitBeastsResult(pseudo, 3, true);
+      updateLiveBattle({ pseudo, pokemon: "beasts", status: "victory", battlePhase: "beasts", lastAction: "Trio vaincu !" });
+      await sleep(2000); setPhase("victory"); return;
     }
     const allDown2 = teamRef.current.every(m => m.fainted);
-    if (allDown2) { setLog(l => [...l, "Toute votre équipe est K.O. !"]); sendLiveUpdate("Équipe K.O.", "defeat"); submitBeastsResult(pseudo, beastsRef.current.filter(b => b.defeated).length, false); await sleep(2000); setPhase("defeat"); return; }
+    if (allDown2) { setLog(l => [...l, "Toute votre équipe est K.O. !"]); submitBeastsResult(pseudo, beastsRef.current.filter(b => b.defeated).length, false); await sleep(2000); setPhase("defeat"); return; }
 
-    sendLiveUpdate("Tour terminé");
+    updateLiveBattle({ pseudo, pokemon: "beasts", battlePhase: "beasts", beastsDefeated: beastsRef.current.filter(b => b.defeated).length, lastAction: "Tour terminé", status: "in_battle" });
     startNewTurn();
   }, [turnQueue, activeSlots, pseudo, startNewTurn]);
 
-  const handleBuilderConfirm = useCallback((configs: TeamMemberConfig[]) => {
+  const handleBuilderConfirm = useCallback((configs: import("./TeamBuilder").TeamMemberConfig[]) => {
     setTeam(prev => prev.map((m, i) => {
       const cfg = configs[i];
       if (!cfg) return m;
@@ -183,15 +146,8 @@ export function BeastsBattle({ pseudo, player, onComplete }: { pseudo: string; p
   }, []);
 
   const audioEl = <audio ref={audioRef} src={`${BASE_PATH}/audio/beasts-theme.mp3`} preload="auto" />;
-  if (phase === "intro_scene") return (
-    <BeastsIntroScene pseudo={pseudo} onComplete={() => setPhase("builder")} />
-  );
-  if (phase === "victory_scene") return (
-    <BeastsVictoryScene pseudo={pseudo} onComplete={() => {
-      submitBeastsResult(pseudo, 3, true);
-      setPhase("victory");
-    }} />
-  );
+  const musicEl = phase === "battle" || phase === "team_select" ? <MusicPlayer track="beasts" volume={25} /> : null;
+
   if (phase === "loading") return <>{audioEl}<div className="h-dvh w-full flex items-center justify-center" style={{ background: "radial-gradient(ellipse at 50% 30%, #1a0a2e, #0a0518)", fontFamily: "'Courier New', monospace" }}><p className="text-white/40 animate-pulse">Chargement…</p></div></>;
   if (phase === "builder") return <TeamBuilder
     team={team.map(m => ({ pokemon: m.pokemon, data: m.data, maxHP: m.maxHP }))}
